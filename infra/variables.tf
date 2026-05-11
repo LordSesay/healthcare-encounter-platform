@@ -41,7 +41,6 @@ variable "db_username" {
 
 variable "db_password" {
   type      = string
-  default   = "EncountersPass2025!"
   sensitive = true
 }
 
@@ -50,8 +49,8 @@ variable "db_name" {
   default = "encounters"
 }
 
-
-variable "jenkins_sg_id" {
+variable "jenkins_private_ip" {
   type        = string
-  description = "Security group ID of the Jenkins EC2 instance (for migration access to RDS)"
+  description = "Private IP of the Jenkins EC2 instance (for RDS access)"
+  default     = "172.31.46.149"
 }
