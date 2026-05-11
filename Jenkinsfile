@@ -14,11 +14,6 @@ pipeline {
       defaultValue: '767398054553',
       description: 'AWS account ID for ECR and ECS deployment'
     )
-    string(
-      name: 'JENKINS_SG_ID',
-      defaultValue: 'sg-xxxxxxxxxxxx',
-      description: 'Jenkins EC2 security group ID for RDS migration access'
-    )
     booleanParam(
       name: 'RUN_TERRAFORM_PLAN',
       defaultValue: true,
@@ -116,12 +111,10 @@ pipeline {
           [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
-          withEnv(["TF_VAR_jenkins_sg_id=${params.JENKINS_SG_ID}"]) {
-            dir("${INFRA_DIR}") {
-              sh 'terraform init'
-              sh 'terraform validate'
-              sh 'terraform plan -no-color'
-            }
+          dir("${INFRA_DIR}") {
+            sh 'terraform init'
+            sh 'terraform validate'
+            sh 'terraform plan -no-color'
           }
         }
       }
@@ -136,10 +129,8 @@ pipeline {
           [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
-          withEnv(["TF_VAR_jenkins_sg_id=${params.JENKINS_SG_ID}"]) {
-            dir("${INFRA_DIR}") {
-              sh 'terraform apply -auto-approve -no-color'
-            }
+          dir("${INFRA_DIR}") {
+            sh 'terraform apply -auto-approve -no-color'
           }
         }
       }
