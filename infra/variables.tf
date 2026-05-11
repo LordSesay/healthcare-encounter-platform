@@ -41,6 +41,7 @@ variable "db_username" {
 
 variable "db_password" {
   type      = string
+  default   = "EncountersPass2025!"
   sensitive = true
 }
 
@@ -48,6 +49,7 @@ variable "db_name" {
   type    = string
   default = "encounters"
 }
+
 
 variable "jenkins_sg_id" {
   type        = string

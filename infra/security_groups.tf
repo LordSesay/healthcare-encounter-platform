@@ -72,6 +72,7 @@ resource "aws_security_group_rule" "rds_from_ecs" {
   description              = "Allow ECS tasks to connect to PostgreSQL"
 }
 
+
 resource "aws_security_group_rule" "rds_from_jenkins" {
   type                     = "ingress"
   from_port                = 5432
