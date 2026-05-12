@@ -33,6 +33,13 @@ resource "aws_iam_role_policy" "ecs_secrets_access" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = [aws_secretsmanager_secret.database_url.arn]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = [aws_kms_key.secrets.arn]
       }
     ]
   })
