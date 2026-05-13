@@ -5,7 +5,7 @@ pipeline {
     timestamps()
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
-    timeout(time: 45, unit: 'MINUTES')
+    timeout(time: 30, unit: 'MINUTES')
   }
 
   parameters {
@@ -13,16 +13,6 @@ pipeline {
       name: 'AWS_ACCOUNT_ID',
       defaultValue: '767398054553',
       description: 'AWS account ID for ECR and ECS deployment'
-    )
-    booleanParam(
-      name: 'RUN_TERRAFORM_PLAN',
-      defaultValue: true,
-      description: 'Run Terraform init/validate/plan'
-    )
-    booleanParam(
-      name: 'DEPLOY',
-      defaultValue: true,
-      description: 'Push images and redeploy ECS'
     )
   }
 
@@ -32,7 +22,6 @@ pipeline {
 
     BACKEND_DIR    = 'apps/backend'
     FRONTEND_DIR   = 'apps/frontend'
-    INFRA_DIR      = 'infra'
 
     BACKEND_IMAGE  = 'fullstack-backend'
     FRONTEND_IMAGE = 'fullstack-frontend'
@@ -48,16 +37,6 @@ pipeline {
   }
 
   stages {
-    stage('Validate Inputs') {
-      steps {
-        script {
-          if (!params.AWS_ACCOUNT_ID?.trim()) {
-            error('AWS_ACCOUNT_ID parameter is empty.')
-          }
-        }
-      }
-    }
-
     stage('Backend Install') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -90,58 +69,14 @@ pipeline {
       }
     }
 
-    stage('Build Backend Docker Image') {
+    stage('Build Docker Images') {
       steps {
         sh 'docker build -t ${BACKEND_IMAGE}:latest ./${BACKEND_DIR}'
-      }
-    }
-
-    stage('Build Frontend Docker Image') {
-      steps {
         sh 'docker build -t ${FRONTEND_IMAGE}:latest ./${FRONTEND_DIR}'
       }
     }
 
-    stage('Terraform Plan') {
-      when {
-        expression { return params.RUN_TERRAFORM_PLAN }
-      }
-      steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh 'rm -f terraform.tfstate terraform.tfstate.backup'
-            sh 'terraform init -input=false -reconfigure'
-            sh 'terraform validate'
-            sh 'terraform plan -no-color'
-          }
-        }
-      }
-    }
-
-    stage('Terraform Apply') {
-      when {
-        expression { return params.DEPLOY }
-      }
-      steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh 'terraform init -input=false -reconfigure'
-            sh 'terraform apply -auto-approve -no-color'
-          }
-        }
-      }
-    }
-
     stage('ECR Login') {
-      when {
-        expression { return params.DEPLOY }
-      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
           sh '''
@@ -152,10 +87,7 @@ pipeline {
       }
     }
 
-    stage('Tag Images') {
-      when {
-        expression { return params.DEPLOY }
-      }
+    stage('Tag & Push Images') {
       steps {
         sh '''
           docker tag ${BACKEND_IMAGE}:latest ${ECR_BACKEND}:latest
@@ -163,16 +95,7 @@ pipeline {
 
           docker tag ${FRONTEND_IMAGE}:latest ${ECR_FRONTEND}:latest
           docker tag ${FRONTEND_IMAGE}:latest ${ECR_FRONTEND}:${IMAGE_TAG}
-        '''
-      }
-    }
 
-    stage('Push Images') {
-      when {
-        expression { return params.DEPLOY }
-      }
-      steps {
-        sh '''
           docker push ${ECR_BACKEND}:latest
           docker push ${ECR_BACKEND}:${IMAGE_TAG}
 
@@ -183,19 +106,12 @@ pipeline {
     }
 
     stage('Run Database Migrations') {
-      when {
-        expression { return params.DEPLOY }
-      }
       steps {
         withCredentials([
           [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'DB_PASSWORD')
+          string(credentialsId: 'db-password', variable: 'DB_PASSWORD'),
+          string(credentialsId: 'rds-endpoint', variable: 'RDS_ENDPOINT')
         ]) {
-          dir("${INFRA_DIR}") {
-            script {
-              env.RDS_ENDPOINT = sh(script: 'terraform output -raw rds_endpoint', returnStdout: true).trim()
-            }
-          }
           dir("${BACKEND_DIR}") {
             sh '''
               export DATABASE_URL="postgresql://encounters_admin:${DB_PASSWORD}@${RDS_ENDPOINT}/encounters"
@@ -206,10 +122,7 @@ pipeline {
       }
     }
 
-    stage('Render ECS Task Definition') {
-      when {
-        expression { return params.DEPLOY }
-      }
+    stage('Deploy to ECS') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
           sh '''
@@ -219,31 +132,9 @@ pipeline {
               ${ECR_BACKEND}:${IMAGE_TAG} \
               ${ECR_FRONTEND}:${IMAGE_TAG} \
               ${AWS_REGION}
-          '''
-        }
-      }
-    }
 
-    stage('Register ECS Task Definition') {
-      when {
-        expression { return params.DEPLOY }
-      }
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
             ./cicd/jenkins/ecs/register-taskdef.sh ${AWS_REGION}
-          '''
-        }
-      }
-    }
 
-    stage('Deploy ECS Task Definition') {
-      when {
-        expression { return params.DEPLOY }
-      }
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
             NEW_TASK_DEF_ARN=$(cat new-taskdef-arn.txt)
 
             aws ecs update-service \
@@ -257,9 +148,6 @@ pipeline {
     }
 
     stage('Wait for ECS Stability') {
-      when {
-        expression { return params.DEPLOY }
-      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
           sh '''
@@ -275,14 +163,13 @@ pipeline {
 
   post {
     success {
-      echo 'Pipeline completed successfully: images pushed and ECS redeployed.'
+      echo 'Pipeline completed: images pushed and ECS redeployed.'
     }
     failure {
       echo 'Pipeline failed. Check the failed stage logs.'
     }
     always {
       sh 'docker system prune -af || true'
-      sh 'rm -rf ~/.npm/_cacache || true'
     }
   }
 }
