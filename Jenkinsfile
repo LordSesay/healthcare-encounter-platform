@@ -112,7 +112,7 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
-            sh 'terraform init'
+            sh 'terraform init -input=false -reconfigure'
             sh 'terraform validate'
             sh 'terraform plan -no-color'
           }
@@ -130,6 +130,7 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
+            sh 'terraform init -input=false -reconfigure'
             sh 'terraform apply -auto-approve -no-color'
           }
         }
