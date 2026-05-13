@@ -112,6 +112,7 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
+            sh 'rm -f terraform.tfstate terraform.tfstate.backup'
             sh 'terraform init -input=false -reconfigure'
             sh 'terraform validate'
             sh 'terraform plan -no-color'
