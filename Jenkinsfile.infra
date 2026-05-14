@@ -1,0 +1,86 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  environment {
+    AWS_REGION = 'us-east-1'
+    INFRA_DIR  = 'infra'
+  }
+
+  stages {
+    stage('Terraform Init') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
+          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
+        ]) {
+          dir("${INFRA_DIR}") {
+            sh 'rm -f terraform.tfstate terraform.tfstate.backup'
+            sh 'terraform init -input=false -reconfigure'
+          }
+        }
+      }
+    }
+
+    stage('Terraform Validate') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
+          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
+        ]) {
+          dir("${INFRA_DIR}") {
+            sh 'terraform validate'
+          }
+        }
+      }
+    }
+
+    stage('Terraform Plan') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
+          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
+        ]) {
+          dir("${INFRA_DIR}") {
+            sh 'terraform plan -no-color -out=tfplan'
+          }
+        }
+      }
+    }
+
+    stage('Manual Approval') {
+      steps {
+        input message: 'Review the Terraform plan above. Approve to apply?',
+              ok: 'Apply Infrastructure Changes'
+      }
+    }
+
+    stage('Terraform Apply') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
+          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
+        ]) {
+          dir("${INFRA_DIR}") {
+            sh 'terraform apply -no-color tfplan'
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo 'Infrastructure changes applied successfully.'
+    }
+    failure {
+      echo 'Infrastructure pipeline failed. Check logs.'
+    }
+  }
+}
