@@ -52,5 +52,5 @@ variable "db_name" {
 variable "jenkins_private_ip" {
   type        = string
   description = "Private IP of the Jenkins EC2 instance (for RDS access)"
-  default     = "172.31.46.149"
+  default     = "172.31.46.156"
 }
