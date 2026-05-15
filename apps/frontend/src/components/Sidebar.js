@@ -14,7 +14,7 @@ function Sidebar() {
         <li><NavLink to="/encounters/new" activeClassName="active">➕ New Encounter</NavLink></li>
       </ul>
       <div className="sidebar-footer">
-        <span className="env-badge">● ECS Fargate — Production</span>
+        <span className="env-badge">● ECS Fargate</span>
       </div>
     </nav>
   );

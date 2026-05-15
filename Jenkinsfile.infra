@@ -5,7 +5,6 @@ pipeline {
     timestamps()
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '10'))
-    timeout(time: 30, unit: 'MINUTES')
   }
 
   environment {
@@ -55,6 +54,9 @@ pipeline {
     }
 
     stage('Manual Approval') {
+      options {
+        timeout(time: 2, unit: 'HOURS')
+      }
       steps {
         input message: 'Review the Terraform plan above. Approve to apply?',
               ok: 'Apply Infrastructure Changes'
