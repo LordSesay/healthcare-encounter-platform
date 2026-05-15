@@ -9,4 +9,4 @@
 Jenkins failed with:
 
 ```text
-permission denied while trying to connect to the Docker daemon socket
+permission denied while trying to connect to the Docker daemon
