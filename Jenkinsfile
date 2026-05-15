@@ -114,7 +114,7 @@ pipeline {
         ]) {
           dir("${BACKEND_DIR}") {
             sh '''
-              export DATABASE_URL="postgresql://encounters_admin:${DB_PASSWORD}@${RDS_ENDPOINT}/encounters"
+              export DATABASE_URL="postgresql://encounters_admin:${DB_PASSWORD}@${RDS_ENDPOINT}/encounters?sslmode=require"
               npm run migrate
             '''
           }
