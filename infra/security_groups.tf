@@ -78,6 +78,6 @@ resource "aws_security_group_rule" "rds_from_jenkins" {
   to_port           = 5432
   protocol          = "tcp"
   security_group_id = aws_security_group.rds_sg.id
-  cidr_blocks       = ["${var.jenkins_private_ip}/32"]
+  cidr_blocks       = ["${var.jenkins_private_ip}/32", "172.31.0.0/16"]
   description       = "Allow Jenkins EC2 to run PostgreSQL migrations"
 }
