@@ -18,7 +18,12 @@ function Dashboard() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Dashboard</h1>
+        <div>
+          <h1>Dashboard</h1>
+          <p style={{ color: '#64748b', fontSize: '14px', marginTop: '4px' }}>
+            Real-time encounter lifecycle overview
+          </p>
+        </div>
         <Link to="/encounters/new" className="btn btn-primary">+ New Encounter</Link>
       </div>
 
@@ -53,7 +58,7 @@ function Dashboard() {
         </div>
         <div className={`stat-card ${health && health.status === 'healthy' ? 'accent-green' : 'accent-red'}`}>
           <span className="stat-label">API Health</span>
-          <span className="stat-value">{health ? health.status : '—'}</span>
+          <span className="stat-value" style={{ fontSize: '18px' }}>{health ? (health.status === 'healthy' ? '● Online' : '○ Offline') : '—'}</span>
         </div>
       </div>
 
@@ -82,30 +87,32 @@ function Dashboard() {
           <Link to="/encounters" className="link">View all →</Link>
         </div>
         {recent.length === 0 ? (
-          <p className="empty">No encounters yet. <Link to="/encounters/new">Create one</Link>.</p>
+          <p className="empty">No encounters yet. <Link to="/encounters/new">Create your first encounter</Link> to get started.</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Encounter ID</th>
-                <th>Patient</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map(e => (
-                <tr key={e.encounterId}>
-                  <td><Link to={`/encounters/${e.encounterId}`} className="link">{e.encounterId}</Link></td>
-                  <td>{e.patientReference}</td>
-                  <td>{e.department}</td>
-                  <td><StatusBadge status={e.status} /></td>
-                  <td>{new Date(e.createdAt).toLocaleTimeString()}</td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Encounter ID</th>
+                  <th>Patient</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Created</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recent.map(e => (
+                  <tr key={e.encounterId}>
+                    <td><Link to={`/encounters/${e.encounterId}`} className="link">{e.encounterId}</Link></td>
+                    <td>{e.patientReference}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{e.department}</td>
+                    <td><StatusBadge status={e.status} /></td>
+                    <td style={{ color: '#64748b' }}>{new Date(e.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

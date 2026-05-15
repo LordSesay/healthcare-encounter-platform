@@ -1,16 +1,16 @@
 import React from 'react';
 
-const colors = {
-  low: '#6b7280',
-  normal: '#2563eb',
-  high: '#d97706',
-  critical: '#dc2626'
+const styles = {
+  low: { background: 'linear-gradient(135deg, #6b7280, #4b5563)' },
+  normal: { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' },
+  high: { background: 'linear-gradient(135deg, #d97706, #b45309)' },
+  critical: { background: 'linear-gradient(135deg, #dc2626, #b91c1c)' }
 };
 
 function PriorityBadge({ priority }) {
-  const bg = colors[priority] || '#6b7280';
+  const style = styles[priority] || styles['normal'];
   return (
-    <span className="priority-badge" style={{ background: bg }}>
+    <span className="priority-badge" style={style}>
       {priority}
     </span>
   );
