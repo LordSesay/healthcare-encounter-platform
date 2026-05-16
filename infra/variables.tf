@@ -99,3 +99,25 @@ variable "jenkins_private_ip" {
   type    = string
   default = "172.31.46.156"
 }
+
+# Auto Scaling
+variable "ecs_min_capacity" {
+  type    = number
+  default = 1
+}
+
+variable "ecs_max_capacity" {
+  type    = number
+  default = 4
+}
+
+# DNS / HTTPS
+variable "domain_name" {
+  type        = string
+  description = "Root domain for Route 53 and ACM (e.g. encounters.example.com)"
+}
+
+variable "enable_https" {
+  type    = bool
+  default = true
+}

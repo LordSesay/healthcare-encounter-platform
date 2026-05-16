@@ -25,3 +25,11 @@ output "ecs_service_name" {
 output "rds_endpoint" {
   value = module.rds.endpoint
 }
+
+output "domain_nameservers" {
+  value = module.dns.nameservers
+}
+
+output "certificate_arn" {
+  value = module.dns.certificate_arn
+}

@@ -36,7 +36,7 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [var.rds_sg_id]
 
   multi_az            = var.multi_az
-  publicly_accessible = var.environment == "dev" ? true : false
+  publicly_accessible = false
   skip_final_snapshot = var.environment == "prod" ? false : true
   deletion_protection = var.deletion_protection
 
