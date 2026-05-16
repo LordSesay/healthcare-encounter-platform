@@ -8,21 +8,34 @@ variable "project_name" {
   default = "fullstack-automation"
 }
 
+variable "environment" {
+  type        = string
+  description = "Deployment environment (dev, staging, prod)"
+}
+
+# Networking
 variable "vpc_cidr" {
   type    = string
   default = "10.0.0.0/16"
 }
 
-variable "public_subnet_1_cidr" {
-  type    = string
-  default = "10.0.1.0/24"
+# ECS
+variable "ecs_desired_count" {
+  type    = number
+  default = 1
 }
 
-variable "public_subnet_2_cidr" {
+variable "ecs_cpu" {
   type    = string
-  default = "10.0.2.0/24"
+  default = "512"
 }
 
+variable "ecs_memory" {
+  type    = string
+  default = "1024"
+}
+
+# Ports
 variable "backend_container_port" {
   type    = number
   default = 8080
@@ -33,6 +46,7 @@ variable "frontend_container_port" {
   default = 80
 }
 
+# RDS
 variable "db_username" {
   type      = string
   default   = "encounters_admin"
@@ -49,8 +63,39 @@ variable "db_name" {
   default = "encounters"
 }
 
+variable "db_instance_class" {
+  type    = string
+  default = "db.t3.micro"
+}
+
+variable "db_allocated_storage" {
+  type    = number
+  default = 20
+}
+
+variable "db_multi_az" {
+  type    = bool
+  default = false
+}
+
+variable "db_deletion_protection" {
+  type    = bool
+  default = false
+}
+
+variable "db_backup_retention" {
+  type    = number
+  default = 7
+}
+
+# Logging
+variable "log_retention_days" {
+  type    = number
+  default = 7
+}
+
+# Jenkins
 variable "jenkins_private_ip" {
-  type        = string
-  description = "Private IP of the Jenkins EC2 instance (for RDS access)"
-  default     = "172.31.46.156"
+  type    = string
+  default = "172.31.46.156"
 }

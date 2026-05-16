@@ -1,8 +1,0 @@
-# Copy to terraform.tfvars and fill in real values
-# DO NOT commit terraform.tfvars to Git
-#
-# Note: jenkins_sg_id is passed via Jenkins pipeline parameter (TF_VAR_jenkins_sg_id)
-
-db_username = "encounters_admin"
-db_password = "<your-secure-password>"
-db_name     = "encounters"

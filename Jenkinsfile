@@ -5,7 +5,7 @@ pipeline {
     timestamps()
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
-    timeout(time: 30, unit: 'MINUTES')
+    timeout(time: 45, unit: 'MINUTES')
   }
 
   parameters {
@@ -13,6 +13,26 @@ pipeline {
       name: 'AWS_ACCOUNT_ID',
       defaultValue: '767398054553',
       description: 'AWS account ID for ECR and ECS deployment'
+    )
+    choice(
+      name: 'ENVIRONMENT',
+      choices: ['dev', 'staging', 'prod'],
+      description: 'Target deployment environment'
+    )
+    string(
+      name: 'PROMOTE_TAG',
+      defaultValue: '',
+      description: 'Image tag to promote (prod only — skips build, deploys existing image)'
+    )
+    booleanParam(
+      name: 'RUN_TERRAFORM',
+      defaultValue: true,
+      description: 'Run Terraform init/plan/apply for infrastructure'
+    )
+    booleanParam(
+      name: 'DEPLOY',
+      defaultValue: true,
+      description: 'Build/push images and deploy to ECS'
     )
   }
 
@@ -22,30 +42,51 @@ pipeline {
 
     BACKEND_DIR    = 'apps/backend'
     FRONTEND_DIR   = 'apps/frontend'
-
-    BACKEND_IMAGE  = 'fullstack-backend'
-    FRONTEND_IMAGE = 'fullstack-frontend'
+    INFRA_DIR      = 'infra'
 
     APP_NAME       = 'fullstack-automation'
-    ECR_BACKEND    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}-backend"
-    ECR_FRONTEND   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}-frontend"
+    ENV            = "${params.ENVIRONMENT}"
 
-    ECS_CLUSTER    = "${APP_NAME}-cluster"
-    ECS_SERVICE    = "${APP_NAME}-service"
+    ECR_BACKEND    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}-${ENV}-backend"
+    ECR_FRONTEND   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}-${ENV}-frontend"
 
-    IMAGE_TAG      = "${env.BUILD_NUMBER}"
+    ECS_CLUSTER    = "${APP_NAME}-${ENV}-cluster"
+    ECS_SERVICE    = "${APP_NAME}-${ENV}-service"
+
+    IMAGE_TAG      = "${params.PROMOTE_TAG ?: env.BUILD_NUMBER}"
   }
 
   stages {
+    stage('Validate Inputs') {
+      steps {
+        script {
+          if (!params.AWS_ACCOUNT_ID?.trim()) {
+            error('AWS_ACCOUNT_ID parameter is empty.')
+          }
+          if (params.ENVIRONMENT == 'prod' && params.PROMOTE_TAG?.trim()) {
+            echo "PROD PROMOTION: deploying existing tag ${params.PROMOTE_TAG} (skipping build)"
+          }
+        }
+      }
+    }
+
+    // ─── BUILD STAGES (skipped for prod promotion) ───
+
     stage('Backend Install') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
       steps {
         dir("${BACKEND_DIR}") {
-          sh 'npm install'
+          sh 'npm ci'
         }
       }
     }
 
     stage('Frontend Install') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
       steps {
         dir("${FRONTEND_DIR}") {
           sh 'npm install'
@@ -54,6 +95,9 @@ pipeline {
     }
 
     stage('Backend Smoke Test') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
       steps {
         dir("${BACKEND_DIR}") {
           sh 'npm test || true'
@@ -61,7 +105,10 @@ pipeline {
       }
     }
 
-    stage('Frontend Build Test') {
+    stage('Frontend Build') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
       steps {
         dir("${FRONTEND_DIR}") {
           sh 'npm run build'
@@ -70,92 +117,167 @@ pipeline {
     }
 
     stage('Build Docker Images') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
       steps {
-        sh 'docker build -t ${BACKEND_IMAGE}:latest ./${BACKEND_DIR}'
-        sh 'docker build -t ${FRONTEND_IMAGE}:latest ./${FRONTEND_DIR}'
+        sh """
+          docker build -t ${APP_NAME}-backend:${IMAGE_TAG} ./${BACKEND_DIR}
+          docker build -t ${APP_NAME}-frontend:${IMAGE_TAG} ./${FRONTEND_DIR}
+        """
       }
     }
 
-    stage('ECR Login') {
+    // ─── TERRAFORM ───
+
+    stage('Terraform Plan') {
+      when {
+        expression { return params.RUN_TERRAFORM }
+      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            aws ecr get-login-password --region ${AWS_REGION} \
-            | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-          '''
-        }
-      }
-    }
+          dir("${INFRA_DIR}") {
+            sh """
+              terraform init \
+                -backend-config="key=env/${ENV}/terraform.tfstate" \
+                -reconfigure
 
-    stage('Tag & Push Images') {
-      steps {
-        sh '''
-          docker tag ${BACKEND_IMAGE}:latest ${ECR_BACKEND}:latest
-          docker tag ${BACKEND_IMAGE}:latest ${ECR_BACKEND}:${IMAGE_TAG}
+              terraform validate
 
-          docker tag ${FRONTEND_IMAGE}:latest ${ECR_FRONTEND}:latest
-          docker tag ${FRONTEND_IMAGE}:latest ${ECR_FRONTEND}:${IMAGE_TAG}
-
-          docker push ${ECR_BACKEND}:latest
-          docker push ${ECR_BACKEND}:${IMAGE_TAG}
-
-          docker push ${ECR_FRONTEND}:latest
-          docker push ${ECR_FRONTEND}:${IMAGE_TAG}
-        '''
-      }
-    }
-
-    stage('Run Database Migrations') {
-      steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'DB_PASSWORD'),
-          string(credentialsId: 'rds-endpoint', variable: 'RDS_ENDPOINT')
-        ]) {
-          dir("${BACKEND_DIR}") {
-            sh '''
-              export DATABASE_URL="postgresql://encounters_admin:${DB_PASSWORD}@${RDS_ENDPOINT}/encounters"
-              npm run migrate
-            '''
+              terraform plan \
+                -var-file=environments/${ENV}.tfvars \
+                -var="db_password=\${DB_PASSWORD}" \
+                -out=tfplan \
+                -no-color
+            """
           }
         }
       }
     }
 
-    stage('Deploy to ECS') {
+    stage('Terraform Apply') {
+      when {
+        expression { return params.RUN_TERRAFORM }
+      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
+          dir("${INFRA_DIR}") {
+            sh 'terraform apply -auto-approve tfplan'
+          }
+        }
+      }
+    }
+
+    // ─── DEPLOY ───
+
+    stage('ECR Login') {
+      when {
+        expression { return params.DEPLOY }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+          sh """
+            aws ecr get-login-password --region ${AWS_REGION} \
+            | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+          """
+        }
+      }
+    }
+
+    stage('Tag & Push Images') {
+      when {
+        expression { return params.DEPLOY && !params.PROMOTE_TAG?.trim() }
+      }
+      steps {
+        sh """
+          docker tag ${APP_NAME}-backend:${IMAGE_TAG} ${ECR_BACKEND}:${IMAGE_TAG}
+          docker tag ${APP_NAME}-backend:${IMAGE_TAG} ${ECR_BACKEND}:latest
+
+          docker tag ${APP_NAME}-frontend:${IMAGE_TAG} ${ECR_FRONTEND}:${IMAGE_TAG}
+          docker tag ${APP_NAME}-frontend:${IMAGE_TAG} ${ECR_FRONTEND}:latest
+
+          docker push ${ECR_BACKEND}:${IMAGE_TAG}
+          docker push ${ECR_BACKEND}:latest
+
+          docker push ${ECR_FRONTEND}:${IMAGE_TAG}
+          docker push ${ECR_FRONTEND}:latest
+        """
+      }
+    }
+
+    // ─── PROD APPROVAL GATE ───
+
+    stage('Production Approval') {
+      when {
+        expression { return params.ENVIRONMENT == 'prod' && params.DEPLOY }
+      }
+      steps {
+        input message: "Deploy to PRODUCTION with tag ${IMAGE_TAG}?", ok: 'Approve Deploy'
+      }
+    }
+
+    // ─── ECS DEPLOYMENT ───
+
+    stage('Render ECS Task Definition') {
+      when {
+        expression { return params.DEPLOY }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+          sh """
             ./cicd/jenkins/ecs/render-taskdef.sh \
               ${ECS_CLUSTER} \
               ${ECS_SERVICE} \
               ${ECR_BACKEND}:${IMAGE_TAG} \
               ${ECR_FRONTEND}:${IMAGE_TAG} \
               ${AWS_REGION}
+          """
+        }
+      }
+    }
 
-            ./cicd/jenkins/ecs/register-taskdef.sh ${AWS_REGION}
+    stage('Register ECS Task Definition') {
+      when {
+        expression { return params.DEPLOY }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+          sh './cicd/jenkins/ecs/register-taskdef.sh ${AWS_REGION}'
+        }
+      }
+    }
 
-            NEW_TASK_DEF_ARN=$(cat new-taskdef-arn.txt)
+    stage('Deploy to ECS') {
+      when {
+        expression { return params.DEPLOY }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+          sh """
+            NEW_TASK_DEF_ARN=\$(cat new-taskdef-arn.txt)
 
             aws ecs update-service \
               --cluster ${ECS_CLUSTER} \
               --service ${ECS_SERVICE} \
-              --task-definition $NEW_TASK_DEF_ARN \
+              --task-definition \$NEW_TASK_DEF_ARN \
               --region ${AWS_REGION}
-          '''
+          """
         }
       }
     }
 
     stage('Wait for ECS Stability') {
+      when {
+        expression { return params.DEPLOY }
+      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
+          sh """
             aws ecs wait services-stable \
               --cluster ${ECS_CLUSTER} \
               --services ${ECS_SERVICE} \
               --region ${AWS_REGION}
-          '''
+          """
         }
       }
     }
@@ -163,13 +285,14 @@ pipeline {
 
   post {
     success {
-      echo 'Pipeline completed: images pushed and ECS redeployed.'
+      echo "✅ Pipeline completed: ${ENV} environment deployed with tag ${IMAGE_TAG}"
     }
     failure {
-      echo 'Pipeline failed. Check the failed stage logs.'
+      echo "❌ Pipeline failed for ${ENV}. Check the failed stage logs."
     }
     always {
       sh 'docker system prune -af || true'
+      sh 'rm -rf ~/.npm/_cacache || true'
     }
   }
 }

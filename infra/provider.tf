@@ -3,10 +3,10 @@ terraform {
 
   backend "s3" {
     bucket         = "lordsesay-fullstack-automation-artifacts-demo"
-    key            = "terraform/state/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "fullstack-automation-tf-lock"
     encrypt        = true
+    # key is set dynamically via -backend-config="key=env/<environment>/terraform.tfstate"
   }
 
   required_providers {
@@ -19,4 +19,12 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
 }
