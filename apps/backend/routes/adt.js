@@ -3,6 +3,23 @@ const service = require('../services/encounters.service');
 
 const router = Router();
 
+// Resolve endpoint — downstream systems look up encounter by external identifiers
+router.get('/resolve', async (req, res) => {
+  const { mrn, csn, facility_id } = req.query;
+
+  if (!mrn && !csn) {
+    return res.status(400).json({ error: 'At least one of mrn or csn is required' });
+  }
+
+  try {
+    const encounter = await service.resolveEncounter({ mrn, csn, facility_id });
+    if (!encounter) return res.status(404).json({ error: 'No encounter found for given identifiers' });
+    res.json({ encounter_id: encounter.encounterId, status: encounter.status, patient_reference: encounter.patientReference, facility: encounter.clinicId });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resolve encounter', detail: err.message });
+  }
+});
+
 router.get('/adt', async (req, res) => {
   try {
     const results = await service.listAdtEncounters(req.query);
@@ -38,14 +55,15 @@ router.patch('/adt/:id/status', async (req, res) => {
   }
 });
 
+// ADT event ingestion — supports A01, A02, A03, A04, A08
 router.post('/from-adt', async (req, res) => {
   const { event_type, event_id, patient, visit } = req.body;
 
-  if (event_type !== 'ADT_A04') {
-    return res.status(400).json({ error: 'Unsupported ADT event type', supported_event: 'ADT_A04' });
+  if (!service.ADT_EVENT_MAP[event_type]) {
+    return res.status(400).json({ error: 'Unsupported ADT event type', supported_events: Object.keys(service.ADT_EVENT_MAP) });
   }
-  if (!event_id || !patient?.mrn || !visit?.epic_csn) {
-    return res.status(400).json({ error: 'Missing required ADT fields' });
+  if (!event_id || !patient?.mrn) {
+    return res.status(400).json({ error: 'Missing required fields: event_id, patient.mrn' });
   }
 
   try {
@@ -53,7 +71,8 @@ router.post('/from-adt', async (req, res) => {
     const statusCode = result.duplicate ? 200 : 201;
     res.status(statusCode).json(result.data);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to process ADT event', detail: err.message });
+    const status = err.message.includes('no existing encounter') ? 404 : 500;
+    res.status(status).json({ error: 'Failed to process ADT event', detail: err.message });
   }
 });
 

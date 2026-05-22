@@ -176,6 +176,29 @@ async function findByEventId(eventId) {
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
+async function resolveEncounter({ mrn, csn, facility_id }) {
+  let conditions = [];
+  let params = [];
+  let idx = 1;
+
+  if (mrn) { conditions.push(`e.patient_reference = $${idx++}`); params.push(mrn); }
+  if (csn) { conditions.push(`e.external_visit_reference = $${idx++}`); params.push(csn); }
+  if (facility_id) { conditions.push(`c.external_clinic_ref = $${idx++}`); params.push(facility_id); }
+
+  if (!conditions.length) return null;
+
+  const { rows } = await pool.query(
+    `SELECT e.*, c.external_clinic_ref as clinic_ref
+     FROM encounters e
+     JOIN clinics c ON e.clinic_id = c.clinic_id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY e.created_at DESC
+     LIMIT 1`,
+    params
+  );
+  return rows[0] ? mapRow(rows[0]) : null;
+}
+
 function mapRow(row) {
   return {
     encounterId: row.encounter_id,
@@ -205,5 +228,6 @@ module.exports = {
   getStats,
   getStatusHistory,
   findByEventId,
+  resolveEncounter,
   getOrCreateClinic
 };
