@@ -147,6 +147,16 @@ All consumers pass `X-Source-System` header to identify the calling system for a
 
 ---
 
+## Validation Scenario
+
+The platform was validated using simulated ADT event payloads.
+
+When duplicate encounter requests were submitted with the same patient and visit context, the platform successfully resolved and returned the same canonical encounter ID instead of generating duplicate identifiers.
+
+This validated the platform's role as a centralized encounter identity source-of-truth layer.
+
+---
+
 ## Connect
 
 Built by **Malcolm Sesay**
