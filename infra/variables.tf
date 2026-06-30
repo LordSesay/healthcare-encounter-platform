@@ -5,7 +5,7 @@ variable "aws_region" {
 
 variable "project_name" {
   type    = string
-  default = "fullstack-automation"
+  default = "encounter-platform"
 }
 
 variable "environment" {
@@ -111,13 +111,21 @@ variable "ecs_max_capacity" {
   default = 4
 }
 
-# DNS / HTTPS
+# Optional DNS / HTTPS
+variable "enable_dns" {
+  type        = bool
+  default     = false
+  description = "Create Route 53 hosted zone, ACM certificate, and app DNS record. Leave false to serve the app from the ALB DNS name."
+}
+
 variable "domain_name" {
   type        = string
-  description = "Root domain for Route 53 and ACM (e.g. encounters.example.com)"
+  default     = ""
+  description = "Root domain for optional Route 53 and ACM resources (e.g. encounters.example.com). Required only when enable_dns is true."
 }
 
 variable "enable_https" {
-  type    = bool
-  default = true
+  type        = bool
+  default     = false
+  description = "Enable HTTPS listener with ACM certificate. Requires enable_dns to be true."
 }

@@ -82,7 +82,7 @@ async function createFromAdt({ event_type, event_id, source_system, patient, vis
   const existing = await repo.findByEventId(event_id)
     || (visit.epic_csn && await repo.resolveEncounter({ mrn: patient.mrn, csn: visit.epic_csn }));
 
-  // For transfer/discharge/update — advance existing encounter
+  // For transfer/discharge/update, advance existing encounter.
   if (event_type === 'ADT_A02' || event_type === 'ADT_A03' || event_type === 'ADT_A08') {
     if (!existing) {
       throw new Error(`Cannot ${eventConfig.action}: no existing encounter found for patient ${patient.mrn}`);
@@ -96,7 +96,7 @@ async function createFromAdt({ event_type, event_id, source_system, patient, vis
     };
   }
 
-  // For admit/register — return existing or create new
+  // For admit/register, return existing or create new.
   if (existing) {
     return {
       duplicate: true,

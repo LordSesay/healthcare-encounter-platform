@@ -27,9 +27,11 @@ output "rds_endpoint" {
 }
 
 output "domain_nameservers" {
-  value = module.dns.nameservers
+  value       = try(module.dns[0].nameservers, [])
+  description = "Route 53 nameservers when optional DNS is enabled."
 }
 
 output "certificate_arn" {
-  value = module.dns.certificate_arn
+  value       = try(module.dns[0].certificate_arn, null)
+  description = "ACM certificate ARN when optional DNS/HTTPS is enabled."
 }

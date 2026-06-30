@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: fullstack-postgres
+    container_name: encounter-postgres
     environment:
       POSTGRES_DB: encounters
       POSTGRES_USER: postgres
@@ -18,7 +18,7 @@ services:
 
   backend:
     build: ./apps/backend
-    container_name: fullstack-backend
+    container_name: encounter-backend
     environment:
       PORT: 8080
       CORS_ORIGIN: http://localhost:3000
@@ -36,7 +36,7 @@ services:
         # Local dev: points to backend container via host port
         # Production (ECS/ALB): uses relative /api/ path (set in Dockerfile/CI)
         REACT_APP_API_URL: http://localhost:8080/api
-    container_name: fullstack-frontend
+    container_name: encounter-frontend
     ports:
       - "3000:80"
     depends_on:

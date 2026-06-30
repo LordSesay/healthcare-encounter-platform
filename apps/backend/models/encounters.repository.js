@@ -11,14 +11,26 @@ async function getOrCreateClinic(clinicRef) {
   return rows[0].clinic_id;
 }
 
-async function createEncounter({ encounterId, clinicId, patientReference, visitType, department, priority, provider, notes, status, sourceSystem }) {
+async function createEncounter({
+  encounterId,
+  clinicId,
+  patientReference,
+  externalVisitReference,
+  visitType,
+  department,
+  priority,
+  provider,
+  notes,
+  status,
+  sourceSystem
+}) {
   const clinicUuid = await getOrCreateClinic(clinicId);
 
   const { rows } = await pool.query(
-    `INSERT INTO encounters (encounter_id, clinic_id, patient_reference, visit_type, department, priority, provider_reference, notes, status, source_system)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO encounters (encounter_id, clinic_id, patient_reference, external_visit_reference, visit_type, department, priority, provider_reference, notes, status, source_system)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
-    [encounterId, clinicUuid, patientReference, visitType, department, priority, provider, notes, status, sourceSystem || null]
+    [encounterId, clinicUuid, patientReference, externalVisitReference || null, visitType, department, priority, provider, notes, status, sourceSystem || null]
   );
 
   await pool.query(

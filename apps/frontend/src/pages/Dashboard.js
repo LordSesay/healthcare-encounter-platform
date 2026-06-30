@@ -30,35 +30,35 @@ function Dashboard() {
       <div className="stat-grid">
         <div className="stat-card">
           <span className="stat-label">Total Encounters</span>
-          <span className="stat-value">{stats ? stats.total : '—'}</span>
+          <span className="stat-value">{stats ? stats.total : '-'}</span>
         </div>
         <div className="stat-card accent-blue">
           <span className="stat-label">Checked In</span>
-          <span className="stat-value">{stats ? (stats['checked-in'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['checked-in'] || 0) : '-'}</span>
         </div>
         <div className="stat-card accent-amber">
           <span className="stat-label">In Progress</span>
-          <span className="stat-value">{stats ? (stats['in-progress'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['in-progress'] || 0) : '-'}</span>
         </div>
         <div className="stat-card accent-green">
           <span className="stat-label">Completed</span>
-          <span className="stat-value">{stats ? (stats['completed'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['completed'] || 0) : '-'}</span>
         </div>
         <div className="stat-card accent-purple">
           <span className="stat-label">Discharged</span>
-          <span className="stat-value">{stats ? (stats['discharged'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['discharged'] || 0) : '-'}</span>
         </div>
         <div className="stat-card accent-teal">
           <span className="stat-label">Billed</span>
-          <span className="stat-value">{stats ? (stats['billed'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['billed'] || 0) : '-'}</span>
         </div>
         <div className="stat-card accent-slate">
           <span className="stat-label">Closed</span>
-          <span className="stat-value">{stats ? (stats['closed'] || 0) : '—'}</span>
+          <span className="stat-value">{stats ? (stats['closed'] || 0) : '-'}</span>
         </div>
         <div className={`stat-card ${health && health.status === 'healthy' ? 'accent-green' : 'accent-red'}`}>
           <span className="stat-label">API Health</span>
-          <span className="stat-value" style={{ fontSize: '18px' }}>{health ? (health.status === 'healthy' ? '● Online' : '○ Offline') : '—'}</span>
+          <span className="stat-value" style={{ fontSize: '18px' }}>{health ? (health.status === 'healthy' ? 'Online' : 'Offline') : '-'}</span>
         </div>
       </div>
 
@@ -84,7 +84,7 @@ function Dashboard() {
       <div className="panel">
         <div className="panel-header">
           <h2>Recent Activity</h2>
-          <Link to="/encounters" className="link">View all →</Link>
+          <Link to="/encounters" className="link">View all -></Link>
         </div>
         {recent.length === 0 ? (
           <p className="empty">No encounters yet. <Link to="/encounters/new">Create your first encounter</Link> to get started.</p>

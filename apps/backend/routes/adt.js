@@ -3,7 +3,7 @@ const service = require('../services/encounters.service');
 
 const router = Router();
 
-// Resolve endpoint — downstream systems look up encounter by external identifiers
+// Resolve endpoint for downstream systems looking up external identifiers.
 router.get('/resolve', async (req, res) => {
   const { mrn, csn, facility_id } = req.query;
 
@@ -55,7 +55,7 @@ router.patch('/adt/:id/status', async (req, res) => {
   }
 });
 
-// ADT event ingestion — supports A01, A02, A03, A04, A08
+// ADT event ingestion supports A01, A02, A03, A04, and A08.
 router.post('/from-adt', async (req, res) => {
   const { event_type, event_id, patient, visit } = req.body;
 

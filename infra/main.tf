@@ -23,6 +23,7 @@ module "ecr" {
 }
 
 module "dns" {
+  count        = var.enable_dns ? 1 : 0
   source       = "./modules/dns"
   project_name = var.project_name
   environment  = var.environment
@@ -38,13 +39,13 @@ module "alb" {
   alb_sg_id               = module.security.alb_sg_id
   frontend_container_port = var.frontend_container_port
   backend_container_port  = var.backend_container_port
-  certificate_arn         = module.dns.certificate_arn
+  certificate_arn         = var.enable_https ? module.dns[0].certificate_arn : null
   enable_https            = var.enable_https
 }
 
-# Route 53 A record pointing domain to ALB
 resource "aws_route53_record" "app" {
-  zone_id = module.dns.zone_id
+  count   = var.enable_dns ? 1 : 0
+  zone_id = module.dns[0].zone_id
   name    = var.domain_name
   type    = "A"
 

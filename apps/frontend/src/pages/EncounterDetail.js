@@ -32,7 +32,7 @@ function EncounterDetail() {
     setBusy('');
   };
 
-  if (error && !enc) return <div className="page"><div className="panel"><p className="error">{error}</p><Link to="/encounters" className="link">← Back</Link></div></div>;
+  if (error && !enc) return <div className="page"><div className="panel"><p className="error">{error}</p><Link to="/encounters" className="link">&lt;- Back</Link></div></div>;
   if (!enc) return <div className="page"><div className="panel"><p>Loading...</p></div></div>;
 
   const currentIdx = STATUS_FLOW.indexOf(enc.status);
@@ -43,13 +43,13 @@ function EncounterDetail() {
     <div className="page">
       <div className="page-header">
         <div>
-          <Link to="/encounters" className="link">← Encounters</Link>
+          <Link to="/encounters" className="link">&lt;- Encounters</Link>
           <h1>{enc.encounterId}</h1>
         </div>
         <div className="header-actions">
           {canAdvance && (
             <button className="btn btn-primary" onClick={advance} disabled={!!busy}>
-              {busy === 'advance' ? 'Updating...' : `Advance → ${nextStatus}`}
+              {busy === 'advance' ? 'Updating...' : `Advance -> ${nextStatus}`}
             </button>
           )}
           <button className="btn btn-danger" onClick={remove} disabled={!!busy}>
@@ -79,8 +79,8 @@ function EncounterDetail() {
             <dt>Patient</dt><dd>{enc.patientReference}</dd>
             <dt>Visit Type</dt><dd>{enc.visitType.replace(/_/g, ' ')}</dd>
             <dt>Department</dt><dd>{enc.department}</dd>
-            <dt>Provider</dt><dd>{enc.provider || '—'}</dd>
-            <dt>Notes</dt><dd>{enc.notes || '—'}</dd>
+            <dt>Provider</dt><dd>{enc.provider || '-'}</dd>
+            <dt>Notes</dt><dd>{enc.notes || '-'}</dd>
             <dt>Created</dt><dd>{new Date(enc.createdAt).toLocaleString()}</dd>
             <dt>Updated</dt><dd>{new Date(enc.updatedAt).toLocaleString()}</dd>
           </dl>

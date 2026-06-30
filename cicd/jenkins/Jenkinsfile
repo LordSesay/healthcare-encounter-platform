@@ -13,14 +13,14 @@ pipeline {
     AWS_REGION     = 'us-east-1'
     AWS_ACCOUNT_ID = "${params.AWS_ACCOUNT_ID}"
 
-    BACKEND_IMAGE  = 'fullstack-backend'
-    FRONTEND_IMAGE = 'fullstack-frontend'
+    BACKEND_IMAGE  = 'encounter-backend'
+    FRONTEND_IMAGE = 'encounter-frontend'
 
-    ECR_BACKEND    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/fullstack-automation-backend"
-    ECR_FRONTEND   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/fullstack-automation-frontend"
+    ECR_BACKEND    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/encounter-platform-backend"
+    ECR_FRONTEND   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/encounter-platform-frontend"
 
-    ECS_CLUSTER    = 'fullstack-automation-cluster'
-    ECS_SERVICE    = 'fullstack-automation-service'
+    ECS_CLUSTER    = 'encounter-platform-cluster'
+    ECS_SERVICE    = 'encounter-platform-service'
 
     IMAGE_TAG      = "${env.BUILD_NUMBER}"
   }
@@ -32,8 +32,8 @@ pipeline {
           script {
             if (!params.AWS_ACCOUNT_ID?.trim()) {
               env.AWS_ACCOUNT_ID = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
-              env.ECR_BACKEND  = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/fullstack-automation-backend"
-              env.ECR_FRONTEND = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/fullstack-automation-frontend"
+              env.ECR_BACKEND  = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/encounter-platform-backend"
+              env.ECR_FRONTEND = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/encounter-platform-frontend"
             }
           }
         }
@@ -59,7 +59,7 @@ pipeline {
     stage('Backend Smoke Test') {
       steps {
         dir('backend') {
-          sh 'npm test || true'
+          sh 'npm test'
         }
       }
     }

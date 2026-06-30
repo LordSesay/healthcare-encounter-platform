@@ -22,7 +22,7 @@ pipeline {
     string(
       name: 'PROMOTE_TAG',
       defaultValue: '',
-      description: 'Image tag to promote (prod only — skips build, deploys existing image)'
+      description: 'Image tag to promote (prod only; skips build, deploys existing image)'
     )
     booleanParam(
       name: 'DEPLOY',
@@ -38,7 +38,7 @@ pipeline {
     BACKEND_DIR    = 'apps/backend'
     FRONTEND_DIR   = 'apps/frontend'
 
-    APP_NAME       = 'fullstack-automation'
+    APP_NAME       = 'encounter-platform'
     ENV            = "${params.ENVIRONMENT}"
 
     ECR_BACKEND    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}-${ENV}-backend"
@@ -68,7 +68,7 @@ pipeline {
       }
     }
 
-    // ─── BUILD STAGES (skipped for prod promotion) ───
+    // BUILD STAGES (skipped for prod promotion)
 
     stage('Backend Install') {
       when {
@@ -98,7 +98,7 @@ pipeline {
       }
       steps {
         dir("${BACKEND_DIR}") {
-          sh 'npm test || true'
+          sh 'npm test'
         }
       }
     }
@@ -126,7 +126,7 @@ pipeline {
       }
     }
 
-    // ─── DEPLOY ───
+    // DEPLOY
 
     stage('ECR Login') {
       when {
@@ -163,7 +163,7 @@ pipeline {
       }
     }
 
-    // ─── PROD APPROVAL GATE ───
+    // PROD APPROVAL GATE
 
     stage('Production Approval') {
       when {
@@ -174,7 +174,7 @@ pipeline {
       }
     }
 
-    // ─── ECS DEPLOYMENT ───
+    // ECS DEPLOYMENT
 
     stage('Render ECS Task Definition') {
       when {
@@ -243,10 +243,10 @@ pipeline {
 
   post {
     success {
-      echo "✅ Pipeline completed: ${ENV} environment deployed with tag ${IMAGE_TAG}"
+      echo "Pipeline completed: ${ENV} environment deployed with tag ${IMAGE_TAG}"
     }
     failure {
-      echo "❌ Pipeline failed for ${ENV}. Check the failed stage logs."
+      echo "Pipeline failed for ${ENV}. Check the failed stage logs."
     }
     always {
       sh 'docker system prune -af || true'

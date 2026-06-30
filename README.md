@@ -1,168 +1,164 @@
 # Healthcare Encounter ID Source-of-Truth Platform
 
-A production-style healthcare interoperability platform that acts as the centralized source of truth for encounter identifiers across hospital systems.
+Production-style healthcare interoperability platform for generating, resolving, and tracking canonical encounter identifiers across simulated hospital systems.
 
-When an EHR triggers an ADT event, an integration engine forwards the encounter context to this platform API. The platform generates or resolves a unique encounter ID, stores it, returns it to the EHR, and allows downstream systems to reference the same identifier across the patient visit lifecycle.
+When an EHR sends an ADT event through an integration engine, this API creates or resolves the encounter ID, stores it in PostgreSQL, and returns the same identifier for downstream systems such as billing, labs, clinical documentation, and analytics.
 
-> API-driven healthcare encounter ID source-of-truth platform using React, Node.js, PostgreSQL, Docker, Jenkins, Terraform, ECS, ALB, ECR, RDS, and Secrets Manager.
+> Built with React, Node.js, PostgreSQL, Docker, Jenkins, Terraform, ECS Fargate, ALB, ECR, RDS, CloudWatch Logs, IAM, and Secrets Manager.
 
----
+No PHI is used in this project. All patient and visit values are synthetic.
 
-## Core Encounter Workflow
+## Production Access
 
-1. EHR system triggers an ADT event.
-2. Integration engine forwards the encounter request to the platform API.
-3. API generates or resolves a unique encounter ID.
-4. Encounter ID is stored as the canonical source of truth.
-5. Encounter ID is returned to the EHR.
-6. ID is injected back into the EHR encounter record.
-7. Downstream systems reference the same encounter identifier.
+The application is designed to run behind an AWS Application Load Balancer.
 
----
+- Primary production access: ALB DNS name
+- Optional: Route 53 hosted zone, ACM certificate, and custom domain
+- Default Terraform path: no custom domain required
 
-## Architecture Flow
+This keeps the portfolio deployment realistic without requiring a purchased domain.
 
-```
+## Core Workflow
+
+1. EHR emits an ADT event.
+2. Integration engine forwards patient and visit context to the API.
+3. API creates or resolves the canonical encounter ID.
+4. Encounter identity is stored in PostgreSQL.
+5. API returns the encounter ID to the caller.
+6. Downstream systems resolve the same ID throughout the visit lifecycle.
+
+```text
 EHR / ADT Event
-        ↓
-Integration Engine
-        ↓
-Encounter Platform API
-        ↓
-Encounter Database
-        ↓
-API Response with Encounter ID
-        ↓
-EHR Encounter Record
-        ↓
-Downstream Systems
+  -> Integration Engine
+  -> Encounter Platform API
+  -> PostgreSQL Encounter Store
+  -> API Response with Encounter ID
+  -> EHR Encounter Record
+  -> Downstream Systems
 ```
 
----
+## API Capabilities
 
-## API Platform Role
+### ADT Ingestion
 
-This platform is designed to sit between hospital systems and downstream applications as an interchangeable API layer.
-
-Instead of every system managing encounter identity differently, this API provides a consistent encounter ID that can be reused across:
-
-- EHR systems
-- Integration engines
-- Billing platforms
-- Lab systems
-- Clinical documentation tools
-- Reporting and analytics pipelines
-
-### ADT Event Ingestion
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/encounters/from-adt` | POST | Ingest ADT events (A01, A02, A03, A04, A08) |
+| --- | --- | --- |
+| `/api/encounters/from-adt` | POST | Ingest ADT_A01, ADT_A02, ADT_A03, ADT_A04, and ADT_A08 events |
 
-### Encounter Resolution (for downstream systems)
+### Encounter Resolution
+
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
+| --- | --- | --- |
 | `/api/encounters/resolve?mrn=X&csn=Y` | GET | Resolve encounter ID by external identifiers |
 
 ### Encounter Lifecycle
+
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/encounters` | POST | Create encounter directly |
-| `/api/encounters` | GET | List/filter encounters |
-| `/api/encounters/:id` | GET | Get encounter detail + history |
+| --- | --- | --- |
+| `/api/encounters` | POST | Create an encounter directly |
+| `/api/encounters` | GET | List and filter encounters |
+| `/api/encounters/:id` | GET | Get encounter details and status history |
 | `/api/encounters/:id/status` | PATCH | Advance lifecycle status |
-| `/api/encounters/stats` | GET | Operational dashboard stats |
+| `/api/encounters/stats` | GET | Return operational dashboard metrics |
 
-### System Identification
-All consumers pass `X-Source-System` header to identify the calling system for audit purposes.
+All API consumers can pass `X-Source-System` to identify the calling integration or hospital system for audit context.
 
----
+## ADT Event Behavior
 
-## Features
+| Event | Meaning | Behavior |
+| --- | --- | --- |
+| `ADT_A01` | Admit | Creates or resolves encounter as `checked-in` |
+| `ADT_A02` | Transfer | Advances existing encounter to `in-progress` |
+| `ADT_A03` | Discharge | Advances existing encounter to `discharged` |
+| `ADT_A04` | Register | Creates or resolves encounter as `created` |
+| `ADT_A08` | Update | Updates metadata on an existing encounter |
 
-- Generates or resolves canonical encounter IDs
-- Stores encounter identity as the source of truth
-- Returns encounter IDs to EHR systems through API response
-- Supports downstream system lookup by encounter ID
-- Provides lifecycle visibility across registration, treatment, billing, and reporting
-- Idempotent — duplicate ADT events return the existing encounter (HTTP 200)
-- Vendor-neutral — works with any EHR via integration engine
+Duplicate ADT events return the existing encounter ID instead of creating duplicate records.
 
----
+## Cloud Architecture
 
-## Multi-ADT Event Support
-
-| Event | Action | Behavior |
-|-------|--------|----------|
-| ADT_A01 | Admit | Creates encounter → `checked-in` |
-| ADT_A02 | Transfer | Advances → `in-progress` |
-| ADT_A03 | Discharge | Advances → `discharged` |
-| ADT_A04 | Register | Creates encounter → `created` |
-| ADT_A08 | Update | Updates metadata on existing encounter |
-
----
+- React frontend served by Nginx container
+- Node.js/Express backend API
+- PostgreSQL persistence on Amazon RDS
+- ECS Fargate service running frontend and backend containers
+- ALB path-based routing for `/api/*` and frontend traffic
+- ECR repositories for immutable image tags
+- Secrets Manager for database connection configuration
+- CloudWatch Logs for container output
+- Terraform modules for VPC, security groups, ALB, ECS, ECR, RDS, IAM, secrets, and optional DNS
 
 ## CI/CD Pipeline
 
-1. Code pushed to GitHub
-2. Jenkins (EC2) triggers pipeline
-3. Backend & frontend containerized via Docker
-4. Images tagged with build numbers → pushed to ECR
-5. ECS task definition dynamically updated with new revision
-6. Zero-downtime rollout behind ALB
+1. Jenkins checks out the repository.
+2. Backend dependencies are installed with `npm ci`.
+3. Backend tests run as a deployment gate.
+4. Frontend dependencies are installed and production build is created.
+5. Backend and frontend Docker images are built.
+6. Images are tagged with the Jenkins build number and pushed to ECR.
+7. Jenkins renders a new ECS task definition revision.
+8. ECS service is updated to the exact task definition ARN.
+9. Jenkins waits for ECS service stability.
 
----
+Production deployments support promotion by image tag, with a manual approval gate before rollout.
 
-## Infrastructure
+## Local Development
 
-- [x] RDS (PostgreSQL) persistence layer
-- [x] Secrets Manager for credential management
-- [x] ECS Fargate orchestration
-- [x] ALB with path-based routing
-- [x] Route 53 DNS configuration
-- [x] IAM roles and policies
-- [x] VPC with public/private subnets
-- [x] ECR image repositories
-- [x] Multi-environment support (dev/staging/prod)
+```bash
+docker compose up --build
+```
 
----
+Default local services:
 
-## Challenges & Solutions
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8080`
+- PostgreSQL: `localhost:5432`
 
-| Problem | Solution |
-|---------|----------|
-| ECS failed to pull images | Proper ECR tagging + versioned deployment |
-| Jenkins Docker permission errors | Fixed Docker socket configuration |
-| CI builds failing on warnings | Enforced production-grade build standards |
-| Frontend/backend routing issues | ALB path-based routing + relative API paths |
+Run backend tests:
 
----
+```bash
+cd apps/backend
+npm test
+```
 
-## Future Enhancements
+## Terraform Notes
 
-- [ ] Authentication & RBAC (API key per system)
-- [ ] Webhook callbacks for async notifications
-- [ ] CI/CD rollback automation
-- [ ] Monitoring (CloudWatch / Prometheus)
-- [ ] Blue/green deployments
+Route 53 and HTTPS are optional.
 
----
+Default portfolio deployment:
+
+```hcl
+enable_dns   = false
+enable_https = false
+```
+
+Custom domain deployment:
+
+```hcl
+enable_dns   = true
+enable_https = true
+domain_name  = "encounters.example.com"
+```
 
 ## Validation Scenario
 
-The platform was validated using simulated ADT event payloads.
+The platform was validated with simulated ADT payloads. Repeated ADT messages with the same visit reference resolve to the original encounter ID, demonstrating idempotent encounter identity behavior.
 
-When duplicate encounter requests were submitted with the same patient and visit context, the platform successfully resolved and returned the same canonical encounter ID instead of generating duplicate identifiers.
+## Future Enhancements
 
-This validated the platform's role as a centralized encounter identity source-of-truth layer.
+- API key authentication per source system
+- RBAC for operational users
+- Rollback automation by previous ECS task definition
+- CloudWatch alarms and dashboard
+- Blue/green deployment strategy
+- OpenAPI documentation
 
----
+## Portfolio Summary
 
-## Connect
+This project demonstrates cloud application delivery, healthcare interoperability modeling, infrastructure as code, containerized deployments, CI/CD automation, and production-oriented AWS architecture.
 
 Built by **Malcolm Sesay**
-🔗 [LinkedIn](https://www.linkedin.com/in/malcolmsesay/)
 
----
+[LinkedIn](https://www.linkedin.com/in/malcolmsesay/)
 
 ## Tags
 

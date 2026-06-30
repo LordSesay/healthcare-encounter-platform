@@ -41,8 +41,8 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([
     {
-      name  = "backend"
-      image = var.backend_image
+      name         = "backend"
+      image        = var.backend_image
       portMappings = [{ containerPort = 8080, protocol = "tcp" }]
       environment = [
         { name = "PORT", value = "8080" },
@@ -60,8 +60,8 @@ resource "aws_ecs_task_definition" "app" {
       }
     },
     {
-      name  = "frontend"
-      image = var.frontend_image
+      name         = "frontend"
+      image        = var.frontend_image
       portMappings = [{ containerPort = 80, protocol = "tcp" }]
       environment = [
         { name = "REACT_APP_API_URL", value = "http://${var.alb_dns_name}" }
