@@ -129,3 +129,34 @@ variable "enable_https" {
   default     = false
   description = "Enable HTTPS listener with ACM certificate. Requires enable_dns to be true."
 }
+
+# Optional EC2/CodeDeploy release path. ECS remains the default architecture.
+variable "enable_ec2_codedeploy" {
+  type        = bool
+  default     = false
+  description = "Provision the S3 and CodeDeploy resources for the opt-in EC2 deployment workflow."
+}
+
+variable "codedeploy_artifact_bucket_name" {
+  type        = string
+  default     = null
+  description = "Globally unique artifact bucket name. Null derives a name from project, environment, account, and region."
+}
+
+variable "codedeploy_target_instance_id" {
+  type        = string
+  default     = null
+  description = "Existing application EC2 instance to tag as the CodeDeploy target. Attach the output instance profile separately."
+}
+
+variable "codedeploy_target_tags" {
+  type        = map(string)
+  default     = {}
+  description = "Additional CodeDeploy target tags. Application and Environment tags are always included."
+}
+
+variable "jenkins_role_name" {
+  type        = string
+  default     = null
+  description = "Existing Jenkins EC2 IAM role name to receive artifact-upload and CodeDeploy permissions."
+}

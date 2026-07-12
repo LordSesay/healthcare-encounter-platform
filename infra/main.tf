@@ -110,3 +110,15 @@ module "ecs" {
   min_capacity           = var.ecs_min_capacity
   max_capacity           = var.ecs_max_capacity
 }
+
+module "codedeploy" {
+  count                = var.enable_ec2_codedeploy ? 1 : 0
+  source               = "./modules/codedeploy"
+  project_name         = var.project_name
+  environment          = var.environment
+  aws_region           = var.aws_region
+  artifact_bucket_name = var.codedeploy_artifact_bucket_name
+  target_instance_id   = var.codedeploy_target_instance_id
+  jenkins_role_name    = var.jenkins_role_name
+  target_tags          = var.codedeploy_target_tags
+}
