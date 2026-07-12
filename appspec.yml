@@ -1,0 +1,44 @@
+version: 0.0
+os: linux
+
+files:
+  - source: /
+    destination: /opt/healthcare-encounter-platform
+
+file_exists_behavior: OVERWRITE
+
+permissions:
+  - object: /opt/healthcare-encounter-platform
+    owner: encounter-app
+    group: encounter-app
+    mode: 755
+    type:
+      - directory
+
+  - object: /opt/healthcare-encounter-platform/deployment/scripts
+    owner: encounter-app
+    group: encounter-app
+    mode: 755
+    type:
+      - directory
+
+hooks:
+  ApplicationStop:
+    - location: deployment/scripts/stop_application.sh
+      timeout: 60
+      runas: root
+
+  AfterInstall:
+    - location: deployment/scripts/install_dependencies.sh
+      timeout: 300
+      runas: root
+
+  ApplicationStart:
+    - location: deployment/scripts/start_application.sh
+      timeout: 120
+      runas: root
+
+  ValidateService:
+    - location: deployment/scripts/validate_service.sh
+      timeout: 60
+      runas: root
