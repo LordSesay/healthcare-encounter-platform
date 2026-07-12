@@ -4,5 +4,5 @@ import App from './App';
 
 test('renders dashboard heading', () => {
   render(<App />);
-  expect(screen.getByText('Dashboard')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
 });
