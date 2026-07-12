@@ -1,0 +1,114 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  parameters {
+    string(name: 'ARTIFACT_BUCKET', defaultValue: '', description: 'Terraform codedeploy.artifact_bucket_name output')
+    string(name: 'CODEDEPLOY_APPLICATION', defaultValue: '', description: 'Terraform codedeploy.application_name output')
+    string(name: 'CODEDEPLOY_GROUP', defaultValue: '', description: 'Terraform codedeploy.deployment_group_name output')
+  }
+
+  environment {
+    AWS_REGION = 'us-east-1'
+  }
+
+  stages {
+    stage('Validate') {
+      steps {
+        script {
+          ['ARTIFACT_BUCKET', 'CODEDEPLOY_APPLICATION', 'CODEDEPLOY_GROUP'].each { name ->
+            if (!params[name]?.trim()) { error("${name} is required") }
+          }
+        }
+        sh '''
+          set -euo pipefail
+          test -f appspec.yml
+          test -f deployment/systemd/healthcare-encounter-api.service
+          test -f apps/backend/package-lock.json
+          for hook in deployment/scripts/*.sh; do bash -n "$hook"; done
+          grep -q 'deployment/scripts/validate_service.sh' appspec.yml
+        '''
+      }
+    }
+
+    stage('Install and Test Backend') {
+      steps {
+        dir('apps/backend') {
+          sh '''
+            set -euo pipefail
+            npm ci
+            npm test -- --runInBand
+            npm audit --omit=dev --audit-level=high
+          '''
+        }
+      }
+    }
+
+    stage('Package Immutable Release') {
+      steps {
+        sh '''
+          set -euo pipefail
+          GIT_SHA=$(git rev-parse HEAD)
+          RELEASE_NAME="healthcare-encounter-platform-${GIT_SHA}.zip"
+          rm -rf release "$RELEASE_NAME"
+          mkdir release
+          git archive --format=tar HEAD | tar -xf - -C release
+          chmod 0755 release/deployment/scripts/*.sh
+          (cd release && zip -qr "../${RELEASE_NAME}" .)
+          test "$(unzip -Z1 "$RELEASE_NAME" | grep -c '^appspec.yml$')" -eq 1
+          printf '%s' "$GIT_SHA" > git-sha.txt
+          printf '%s' "$RELEASE_NAME" > release-name.txt
+        '''
+      }
+    }
+
+    stage('Upload Versioned Artifact') {
+      steps {
+        script {
+          env.GIT_SHA = readFile('git-sha.txt').trim()
+          env.RELEASE_NAME = readFile('release-name.txt').trim()
+          env.S3_KEY = "releases/${env.GIT_SHA}/${env.RELEASE_NAME}"
+        }
+        sh '''
+          set -euo pipefail
+          aws s3 cp "$RELEASE_NAME" "s3://${ARTIFACT_BUCKET}/${S3_KEY}" \
+            --region "$AWS_REGION" --only-show-errors
+        '''
+      }
+    }
+
+    stage('Deploy and Validate') {
+      steps {
+        sh '''
+          set -euo pipefail
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APPLICATION" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --description "Jenkins ${BUILD_TAG}; git ${GIT_SHA}" \
+            --s3-location "bucket=${ARTIFACT_BUCKET},key=${S3_KEY},bundleType=zip" \
+            --region "$AWS_REGION" --query deploymentId --output text)
+          printf '%s' "$DEPLOYMENT_ID" > deployment-id.txt
+          echo "Waiting for CodeDeploy deployment ${DEPLOYMENT_ID}"
+          aws deploy wait deployment-successful --deployment-id "$DEPLOYMENT_ID" --region "$AWS_REGION"
+          aws deploy get-deployment --deployment-id "$DEPLOYMENT_ID" --region "$AWS_REGION" \
+            --query 'deploymentInfo.{id:deploymentId,status:status,revision:revision.s3Location.key,created:createTime,completed:completeTime}'
+        '''
+      }
+    }
+  }
+
+  post {
+    success { echo 'Immutable release deployed and health validation passed.' }
+    failure { echo 'Release failed. Inspect Jenkins, CodeDeploy lifecycle, and systemd logs.' }
+    always {
+      archiveArtifacts artifacts: '*.zip,deployment-id.txt,git-sha.txt', allowEmptyArchive: true, fingerprint: true
+      sh 'rm -rf release || true'
+    }
+  }
+}

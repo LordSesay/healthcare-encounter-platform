@@ -4,6 +4,8 @@
 
 This runbook explains how code moves from GitHub to ECS.
 
+For the optional immutable S3 -> CodeDeploy -> EC2 workflow, see [Production EC2 and CodeDeploy Guide](production-ec2-codedeploy.md). The two pipelines are intentionally separate so the established ECS architecture remains unchanged.
+
 ## Flow
 
 1. Developer pushes code to GitHub.
