@@ -1,0 +1,24 @@
+[Unit]
+Description=Healthcare Encounter API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=encounter-app
+Group=encounter-app
+WorkingDirectory=/opt/healthcare-encounter-platform/apps/backend
+Environment=NODE_ENV=production
+Environment=PORT=8080
+EnvironmentFile=-/etc/healthcare-encounter-platform/runtime.env
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/healthcare-encounter-platform
+
+[Install]
+WantedBy=multi-user.target
