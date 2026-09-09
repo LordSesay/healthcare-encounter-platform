@@ -50,25 +50,11 @@ Returns:
 }
 ```
 
-## System Identification
+## Identity and event processing
 
-All API consumers pass an `X-Source-System` header to identify themselves:
+The body `source_system` is caller-asserted provenance, not authentication. `X-Source-System` does not establish a verified identity. Machine authentication remains future work.
 
-```text
-X-Source-System: epic-bridges
-X-Source-System: billing-engine
-X-Source-System: lab-lis
-```
-
-This enables audit trails showing which system triggered each encounter event.
-
-## Idempotency
-
-The platform guarantees idempotent behavior:
-
-- If an ADT event with the same `event_id` is received twice, the existing encounter is returned with HTTP 200.
-- If a register/admit event arrives for a patient and visit that already has an encounter, the existing ID is returned.
-- Transfer, discharge, and update events fail clearly if no encounter exists.
+PostgreSQL enforces scoped visit and message uniqueness. Exact retries return the original response; changed content under a used message ID, stale events, and invalid lifecycle transitions are rejected. See the [normalized envelope contract](../normalized-adt.md) for required fields, namespace rules, migration and verification instructions. The API consumes normalized JSON and does not parse HL7 v2.
 
 ## Vendor Neutrality
 

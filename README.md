@@ -73,7 +73,7 @@ All API consumers can pass `X-Source-System` to identify the calling integration
 | `ADT_A04` | Register | Creates or resolves encounter as `created` |
 | `ADT_A08` | Update | Updates metadata on an existing encounter |
 
-Duplicate ADT events return the existing encounter ID instead of creating duplicate records.
+Normalized ADT envelopes use database-enforced scoped message and visit identities. Exact retries return the stored response; invalid transitions and stale events are rejected. See the [envelope contract, migration procedure and integration tests](docs/normalized-adt.md). Native HL7 v2 parsing is not implemented.
 
 ## Cloud Architecture
 
@@ -141,7 +141,7 @@ domain_name  = "encounters.example.com"
 
 ## Validation Scenario
 
-The platform was validated with simulated ADT payloads. Repeated ADT messages with the same visit reference resolve to the original encounter ID, demonstrating idempotent encounter identity behavior.
+PostgreSQL integration tests exercise concurrent message delivery, scoped visit identity, lifecycle updates and migration from the original schema. Run them using the instructions in [the ADT contract](docs/normalized-adt.md).
 
 ## Future Enhancements
 
