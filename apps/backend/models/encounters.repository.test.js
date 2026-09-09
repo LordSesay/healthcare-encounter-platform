@@ -1,56 +1,22 @@
-jest.mock('./db', () => ({
-  pool: {
-    query: jest.fn()
-  }
-}));
-
-const { pool } = require('./db');
-const repo = require('./encounters.repository');
-
-describe('encounters repository', () => {
-  beforeEach(() => {
-    pool.query.mockReset();
-  });
-
-  test('persists external visit reference when creating an encounter', async () => {
-    pool.query
-      .mockResolvedValueOnce({ rows: [{ clinic_id: 'clinic-uuid' }] })
-      .mockResolvedValueOnce({
-        rows: [{
-          encounter_id: 'ENC-123',
-          clinic_ref: 'facility-1',
-          patient_reference: 'MRN-123',
-          external_visit_reference: 'CSN-456',
-          visit_type: 'urgent_care',
-          department: 'emergency',
-          priority: 'normal',
-          provider_reference: null,
-          status: 'checked-in',
-          notes: null,
-          source_system: 'mirth',
-          created_at: new Date('2026-01-01T00:00:00Z'),
-          updated_at: new Date('2026-01-01T00:00:00Z'),
-          discharged_at: null
-        }]
-      })
-      .mockResolvedValueOnce({ rows: [] });
-
-    await repo.createEncounter({
-      encounterId: 'ENC-123',
-      clinicId: 'facility-1',
-      patientReference: 'MRN-123',
-      externalVisitReference: 'CSN-456',
-      visitType: 'urgent_care',
-      department: 'emergency',
-      priority: 'normal',
-      provider: null,
-      notes: null,
-      status: 'checked-in',
-      sourceSystem: 'mirth'
-    });
-
-    const insertCall = pool.query.mock.calls[1];
-    expect(insertCall[0]).toContain('external_visit_reference');
-    expect(insertCall[1][3]).toBe('CSN-456');
-  });
+const { normalize, validateTransition } = require('./adt.repository');
+const envelope = () => ({ event_type:'ADT_A01', event_id:'message-1', source_system:'ehr', occurred_at:'2026-01-01T10:00:00Z', patient:{mrn:'123',assigning_authority:'hospital'}, visit:{visit_id:'visit-1',facility_id:'north'} });
+test('message identity cannot substitute for visit identity', () => {
+  const e = envelope(); delete e.visit.visit_id;
+  expect(() => normalize(e)).toThrow('visit.visit_id');
+});
+test('requires patient authority and a timezone', () => {
+  const e = envelope(); delete e.patient.assigning_authority;
+  expect(() => normalize(e)).toThrow('assigning_authority');
+  e.patient.assigning_authority = 'hospital'; e.occurred_at = '2026-01-01';
+  expect(() => normalize(e)).toThrow('timestamp');
+});
+test('rejects unsupported transitions and missing transfer location', () => {
+  expect(() => validateTransition('discharged','checked-in')).toThrow('transition');
+  expect(() => validateTransition('created','discharged')).toThrow('transition');
+  expect(() => normalize({...envelope(),event_type:'ADT_A02'})).toThrow('location');
+});
+test('normalizes aliases and ordering of metadata for retry comparison', () => {
+  const e = envelope(); const a = normalize(e);
+  e.visit.epic_csn = e.visit.visit_id; delete e.visit.visit_id;
+  expect(normalize(e)).toEqual(a);
 });

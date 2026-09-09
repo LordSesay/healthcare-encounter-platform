@@ -16,11 +16,12 @@ async function getStats() {
   return repo.getStats();
 }
 
-async function createEncounter({ clinicId, patientReference, visitType, department, priority, provider, notes }) {
+async function createEncounter({ clinicId, patientReference, visitType, department, priority, provider, notes, externalVisitReference, sourceSystem, patientAssigningAuthority }) {
   const encounter = await repo.createEncounter({
     encounterId: generateEncounterId(),
     clinicId,
     patientReference,
+    externalVisitReference, sourceSystem, patientAssigningAuthority,
     visitType,
     department: department || 'general',
     priority: VALID_PRIORITIES.includes(priority) ? priority : 'normal',
@@ -72,66 +73,19 @@ async function deleteEncounter(encounterId) {
 }
 
 // ADT operations
-async function createFromAdt({ event_type, event_id, source_system, patient, visit }) {
-  const eventConfig = ADT_EVENT_MAP[event_type];
-  if (!eventConfig) {
-    throw new Error(`Unsupported ADT event type: ${event_type}`);
-  }
-
-  // Resolve existing encounter by event_id or by MRN + CSN
-  const existing = await repo.findByEventId(event_id)
-    || (visit.epic_csn && await repo.resolveEncounter({ mrn: patient.mrn, csn: visit.epic_csn }));
-
-  // For transfer/discharge/update, advance existing encounter.
-  if (event_type === 'ADT_A02' || event_type === 'ADT_A03' || event_type === 'ADT_A08') {
-    if (!existing) {
-      throw new Error(`Cannot ${eventConfig.action}: no existing encounter found for patient ${patient.mrn}`);
-    }
-    if (eventConfig.status) {
-      await repo.updateStatus(existing.encounterId, eventConfig.status, existing.status);
-    }
-    return {
-      duplicate: false,
-      data: { message: `Encounter ${eventConfig.action} processed`, encounter_id: existing.encounterId, status: eventConfig.status || existing.status, action: eventConfig.action }
-    };
-  }
-
-  // For admit/register, return existing or create new.
-  if (existing) {
-    return {
-      duplicate: true,
-      data: { message: 'Encounter already exists. Returning existing ID.', encounter_id: existing.encounterId, status: existing.status, idempotent: true }
-    };
-  }
-
-  const encounter = await repo.createEncounter({
-    encounterId: generateEncounterId(),
-    clinicId: visit.facility_id || 'clinic-default',
-    patientReference: patient.mrn,
-    visitType: visit.visit_type || 'urgent_care',
-    department: visit.department || 'emergency',
-    priority: visit.priority || 'normal',
-    provider: visit.attending_provider || null,
-    notes: null,
-    status: eventConfig.status,
-    sourceSystem: source_system,
-    externalVisitReference: visit.epic_csn || event_id
-  });
-
-  return {
-    duplicate: false,
-    data: { message: `Encounter ${eventConfig.action} processed`, encounter_id: encounter.encounterId, status: eventConfig.status, action: eventConfig.action }
-  };
+async function createFromAdt(input) {
+  return require('../models/adt.repository').processEvent(input);
 }
 
-async function resolveEncounter({ mrn, csn, facility_id }) {
-  const encounter = await repo.resolveEncounter({ mrn, csn, facility_id });
+async function resolveEncounter(filters) {
+  const encounter = await repo.resolveEncounter(filters);
   return encounter;
 }
 
 async function listAdtEncounters({ status, facility_id, mrn }) {
   const filters = {};
   if (status) filters.status = status;
+  if (facility_id) filters.facility_id = facility_id;
   if (mrn) filters.search = mrn;
 
   const result = await repo.listEncounters(filters);

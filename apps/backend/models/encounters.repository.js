@@ -1,15 +1,8 @@
 const { pool } = require('./db');
 
-async function getOrCreateClinic(clinicRef) {
-  const { rows } = await pool.query(
-    `INSERT INTO clinics (external_clinic_ref, clinic_name)
-     VALUES ($1, $1)
-     ON CONFLICT (external_clinic_ref) DO UPDATE SET updated_at = NOW()
-     RETURNING clinic_id`,
-    [clinicRef]
-  );
-  return rows[0].clinic_id;
-}
+const { identity, assertMutable } = require('../utils/validation');
+const clinics = require('./clinics.repository');
+const getOrCreateClinic = (ref, db = pool) => clinics.getOrCreateClinic(ref, db);
 
 async function createEncounter({
   encounterId,
@@ -22,24 +15,27 @@ async function createEncounter({
   provider,
   notes,
   status,
-  sourceSystem
+  sourceSystem, patientAssigningAuthority
 }) {
-  const clinicUuid = await getOrCreateClinic(clinicId);
+  identity({ facility: clinicId, mrn: patientReference, visit: externalVisitReference, source: sourceSystem, authority: patientAssigningAuthority }, { allowUnscoped: true });
+  return require('./adt.repository').transaction(async db => {
+  const clinicUuid = await getOrCreateClinic(clinicId, db);
 
-  const { rows } = await pool.query(
-    `INSERT INTO encounters (encounter_id, clinic_id, patient_reference, external_visit_reference, visit_type, department, priority, provider_reference, notes, status, source_system)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  const { rows } = await db.query(
+    `INSERT INTO encounters (encounter_id, clinic_id, patient_reference, external_visit_reference, visit_type, department, priority, provider_reference, notes, status, source_system, patient_assigning_authority)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
-    [encounterId, clinicUuid, patientReference, externalVisitReference || null, visitType, department, priority, provider, notes, status, sourceSystem || null]
+    [encounterId, clinicUuid, patientReference, externalVisitReference || null, visitType, department, priority, provider, notes, status, sourceSystem || null, patientAssigningAuthority || null]
   );
 
-  await pool.query(
+  await db.query(
     `INSERT INTO encounter_status_history (encounter_id, previous_status, new_status, changed_by)
      VALUES ($1, NULL, $2, $3)`,
     [encounterId, status, 'system']
   );
 
-  return mapRow(rows[0]);
+  return mapRow({ ...rows[0], clinic_ref: clinicId });
+  });
 }
 
 async function getEncounterById(encounterId) {
@@ -53,11 +49,12 @@ async function getEncounterById(encounterId) {
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-async function listEncounters({ status, department, priority, search, limit }) {
+async function listEncounters({ status, department, priority, search, limit, facility_id }) {
   let conditions = [];
   let params = [];
   let idx = 1;
 
+  if (facility_id) { conditions.push(`c.external_clinic_ref = $${idx++}`); params.push(facility_id); }
   if (status) { conditions.push(`e.status = $${idx++}`); params.push(status); }
   if (department) { conditions.push(`e.department = $${idx++}`); params.push(department); }
   if (priority) { conditions.push(`e.priority = $${idx++}`); params.push(priority); }
@@ -68,7 +65,7 @@ async function listEncounters({ status, department, priority, search, limit }) {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const cap = Math.min(parseInt(limit) || 50, 100);
+  const cap = Math.max(1, Math.min(parseInt(limit) || 50, 100));
   params.push(cap);
 
   const { rows } = await pool.query(
@@ -85,56 +82,33 @@ async function listEncounters({ status, department, priority, search, limit }) {
 }
 
 async function updateStatus(encounterId, newStatus, previousStatus) {
-  const { rows } = await pool.query(
-    `UPDATE encounters SET status = $1, updated_at = NOW() WHERE encounter_id = $2 RETURNING *`,
-    [newStatus, encounterId]
-  );
-
-  await pool.query(
-    `INSERT INTO encounter_status_history (encounter_id, previous_status, new_status, changed_by)
-     VALUES ($1, $2, $3, $4)`,
-    [encounterId, previousStatus, newStatus, 'system']
-  );
-
-  const encounter = await getEncounterById(encounterId);
-  return encounter;
+  const row = await require('./adt.repository').changeStatus(encounterId, newStatus, previousStatus);
+  return row ? getEncounterById(encounterId) : null;
 }
 
 async function updateEncounter(encounterId, { notes, provider, priority }) {
-  let sets = ['updated_at = NOW()'];
-  let params = [];
-  let idx = 1;
-
-  if (notes !== undefined) { sets.push(`notes = $${idx++}`); params.push(notes); }
-  if (provider !== undefined) { sets.push(`provider_reference = $${idx++}`); params.push(provider); }
-  if (priority) { sets.push(`priority = $${idx++}`); params.push(priority); }
-
-  params.push(encounterId);
-
-  await pool.query(
-    `UPDATE encounters SET ${sets.join(', ')} WHERE encounter_id = $${idx}`,
-    params
-  );
-
-  return getEncounterById(encounterId);
+  return require('./adt.repository').transaction(async db => {
+    const { rows: [row] } = await db.query('SELECT * FROM encounters WHERE encounter_id=$1 FOR UPDATE', [encounterId]);
+    if (!row) return null;
+    assertMutable(row);
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    for (const [column, value] of Object.entries({ notes, provider_reference: provider, priority })) {
+      if (value !== undefined) {
+        params.push(value);
+        sets.push(`${column} = $${params.length}`);
+      }
+    }
+    params.push(encounterId);
+    const { rows: [updated] } = await db.query(
+      `UPDATE encounters SET ${sets.join(', ')} WHERE encounter_id=$${params.length} RETURNING *`, params);
+    const { rows: [clinic] } = await db.query('SELECT external_clinic_ref FROM clinics WHERE clinic_id=$1', [row.clinic_id]);
+    return mapRow({ ...updated, clinic_ref: clinic.external_clinic_ref });
+  });
 }
 
 async function deleteEncounter(encounterId) {
-  const encounter = await getEncounterById(encounterId);
-  if (!encounter) return null;
-
-  await pool.query(
-    `UPDATE encounters SET status = 'voided', updated_at = NOW() WHERE encounter_id = $1`,
-    [encounterId]
-  );
-
-  await pool.query(
-    `INSERT INTO encounter_status_history (encounter_id, previous_status, new_status, changed_by, change_reason)
-     VALUES ($1, $2, 'voided', 'system', 'Encounter voided by user')`,
-    [encounterId, encounter.status]
-  );
-
-  return encounter;
+  return updateStatus(encounterId, 'voided');
 }
 
 async function getStats() {
@@ -173,26 +147,18 @@ async function getStatusHistory(encounterId) {
     previousStatus: r.previous_status,
     timestamp: r.changed_at,
     changedBy: r.changed_by,
-    reason: r.change_reason
+    reason: r.change_reason,
+    inboxId: r.inbox_id
   }));
 }
 
-async function findByEventId(eventId) {
-  const { rows } = await pool.query(
-    `SELECT e.*, c.external_clinic_ref as clinic_ref
-     FROM encounters e
-     JOIN clinics c ON e.clinic_id = c.clinic_id
-     WHERE e.external_visit_reference = $1`,
-    [eventId]
-  );
-  return rows[0] ? mapRow(rows[0]) : null;
-}
-
-async function resolveEncounter({ mrn, csn, facility_id }) {
+async function resolveEncounter({ mrn, csn, facility_id, source_system, assigning_authority }) {
   let conditions = [];
   let params = [];
   let idx = 1;
 
+  if (source_system) { conditions.push(`e.source_system = $${idx++}`); params.push(source_system); }
+  if (assigning_authority) { conditions.push(`e.patient_assigning_authority = $${idx++}`); params.push(assigning_authority); }
   if (mrn) { conditions.push(`e.patient_reference = $${idx++}`); params.push(mrn); }
   if (csn) { conditions.push(`e.external_visit_reference = $${idx++}`); params.push(csn); }
   if (facility_id) { conditions.push(`c.external_clinic_ref = $${idx++}`); params.push(facility_id); }
@@ -205,9 +171,10 @@ async function resolveEncounter({ mrn, csn, facility_id }) {
      JOIN clinics c ON e.clinic_id = c.clinic_id
      WHERE ${conditions.join(' AND ')}
      ORDER BY e.created_at DESC
-     LIMIT 1`,
+     LIMIT 2`,
     params
   );
+  if (rows.length > 1) throw Object.assign(new Error('Ambiguous encounter identifiers; provide source, facility and visit identity'), { status: 409 });
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
@@ -224,6 +191,9 @@ function mapRow(row) {
     status: row.status,
     notes: row.notes,
     sourceSystem: row.source_system,
+    patientAssigningAuthority: row.patient_assigning_authority,
+    location: row.location,
+    lastEventAt: row.last_event_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     dischargedAt: row.discharged_at
@@ -239,7 +209,6 @@ module.exports = {
   deleteEncounter,
   getStats,
   getStatusHistory,
-  findByEventId,
   resolveEncounter,
   getOrCreateClinic
 };

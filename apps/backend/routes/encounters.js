@@ -11,7 +11,7 @@ router.get('/stats', async (req, res) => {
     const { stats, byDepartment, byPriority } = await service.getStats();
     res.json({ message: 'Encounter stats retrieved successfully', stats, byStatus: stats, byDepartment, byPriority });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to retrieve stats', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to retrieve stats', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -30,7 +30,7 @@ router.post('/', async (req, res) => {
     const encounter = await service.createEncounter(req.body);
     res.status(201).json(encounter);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to create encounter', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
     const result = await service.listEncounters(req.query);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to list encounters', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to list encounters', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -49,7 +49,7 @@ router.get('/:encounterId', async (req, res) => {
     if (!encounter) return res.status(404).json({ error: 'Encounter not found' });
     res.json(encounter);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to get encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to get encounter', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -59,7 +59,7 @@ router.patch('/:encounterId/status', async (req, res) => {
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result.data);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to advance status', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to advance status', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -69,7 +69,7 @@ router.patch('/:encounterId', async (req, res) => {
     if (!encounter) return res.status(404).json({ error: 'Encounter not found' });
     res.json(encounter);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to update encounter', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -79,7 +79,7 @@ router.delete('/:encounterId', async (req, res) => {
     if (!removed) return res.status(404).json({ error: 'Encounter not found' });
     res.json({ message: 'Encounter voided', encounterId: removed.encounterId });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to delete encounter', detail: err.status ? err.message : undefined });
   }
 });
 

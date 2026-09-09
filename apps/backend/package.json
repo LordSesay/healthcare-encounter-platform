@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "migrate": "node models/migrate.js",
-    "test": "jest"
+    "test": "jest",
+    "test:integration": "node scripts/test-integration.js"
   },
   "author": "lightfeather.io",
   "license": "ISC",

@@ -12,11 +12,11 @@ router.get('/resolve', async (req, res) => {
   }
 
   try {
-    const encounter = await service.resolveEncounter({ mrn, csn, facility_id });
+    const encounter = await service.resolveEncounter(req.query);
     if (!encounter) return res.status(404).json({ error: 'No encounter found for given identifiers' });
     res.json({ encounter_id: encounter.encounterId, status: encounter.status, patient_reference: encounter.patientReference, facility: encounter.clinicId });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to resolve encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to resolve encounter', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -25,7 +25,7 @@ router.get('/adt', async (req, res) => {
     const results = await service.listAdtEncounters(req.query);
     res.json(results);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to list ADT encounters', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to list ADT encounters', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -35,7 +35,7 @@ router.get('/adt/:id', async (req, res) => {
     if (!encounter) return res.status(404).json({ error: 'Encounter not found' });
     res.json(encounter);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to get encounter', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to get encounter', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -51,7 +51,7 @@ router.patch('/adt/:id/status', async (req, res) => {
     if (!result) return res.status(404).json({ error: 'Encounter not found' });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update status', detail: err.message });
+    res.status(err.status || (err.code === '23505' ? 409 : 500)).json({ error: 'Failed to update status', detail: err.status ? err.message : undefined });
   }
 });
 
@@ -71,8 +71,8 @@ router.post('/from-adt', async (req, res) => {
     const statusCode = result.duplicate ? 200 : 201;
     res.status(statusCode).json(result.data);
   } catch (err) {
-    const status = err.message.includes('no existing encounter') ? 404 : 500;
-    res.status(status).json({ error: 'Failed to process ADT event', detail: err.message });
+    const status = err.status || 500;
+    res.status(status).json({ error: 'Failed to process ADT event', detail: err.status ? err.message : undefined });
   }
 });
 
