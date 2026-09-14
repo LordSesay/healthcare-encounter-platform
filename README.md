@@ -1,165 +1,92 @@
 # Healthcare Encounter ID Source-of-Truth Platform
 
-Production-style healthcare interoperability platform for generating, resolving, and tracking canonical encounter identifiers across simulated hospital systems.
+A React, Node.js/Express and PostgreSQL prototype for generating, resolving and tracking canonical encounter identifiers across simulated hospital systems. Examples use synthetic patient and visit data.
 
-When an EHR sends an ADT event through an integration engine, this API creates or resolves the encounter ID, stores it in PostgreSQL, and returns the same identifier for downstream systems such as billing, labs, clinical documentation, and analytics.
+**Status checked September 14, 2026.** The September application changes are synced to GitHub at `4e6ec0b286a0770f64bdf108ec1183cf480dfe1d`. The backend has 53 locally passing tests. The frontend has one test whose execution is blocked by a lockfile mismatch. Current AWS deployment status is unverified.
 
-> Built with React, Node.js, PostgreSQL, Docker, Jenkins, Terraform, ECS Fargate, ALB, ECR, RDS, CloudWatch Logs, IAM, and Secrets Manager.
+## Implemented
 
-No PHI is used in this project. All patient and visit values are synthetic.
+An upstream integration engine submits normalized JSON ADT events. The API persists a scoped encounter identity and returns an identifier for downstream billing, lab and documentation workflows. Native HL7 v2 parsing and real EHR connectivity are not implemented.
 
-## Production Access
+- ADT A01 admission, A04 registration, A02 transfer, A03 discharge and A08 metadata updates.
+- Database-enforced visit and message identity scoped by source system and facility; patient identity includes assigning authority.
+- Transactional inbox, encounter and history writes; exact retries return the stored response.
+- Rejection of changed duplicate messages, stale events, ambiguous resolution and invalid lifecycle transitions.
+- Calendar-valid timestamps normalized to UTC; migrations preserve legacy identifiers and convert naive timestamps under an explicit legacy-UTC assumption.
+- Direct encounter creation, list/filter, detail, status, metadata, void and dashboard APIs.
 
-The application is designed to run behind an AWS Application Load Balancer.
+| API | Purpose |
+| --- | --- |
+| `POST /api/encounters/from-adt` | Process a normalized ADT envelope |
+| `GET /api/encounters/resolve?source_system=ehr-demo&facility_id=north&csn=visit-456` | Resolve a scoped visit |
+| `POST /api/encounters` | Create directly |
+| `GET /api/encounters` | List/filter |
+| `GET /api/encounters/:id` | Retrieve encounter details |
+| `PATCH /api/encounters/:id/status` | Advance lifecycle |
+| `PATCH /api/encounters/:id` | Update metadata |
+| `DELETE /api/encounters/:id` | Void an encounter |
+| `GET /api/encounters/stats` | Dashboard metrics |
 
-- Primary production access: ALB DNS name
-- Optional: Route 53 hosted zone, ACM certificate, and custom domain
-- Default Terraform path: no custom domain required
+See the [normalized ADT contract](docs/normalized-adt.md) for required fields, lifecycle rules, response semantics and migration procedures. Source identity is caller asserted; authentication is still remaining work.
 
-This keeps the portfolio deployment realistic without requiring a purchased domain.
+Infrastructure code defines VPC/subnets/NAT, security groups, ECR, ALB, ECS Fargate, RDS PostgreSQL, IAM, Secrets Manager/KMS, CloudWatch Logs and CPU/memory autoscaling. Route 53/ACM and EC2/CodeDeploy are optional implementations.
 
-## Core Workflow
+The root `Jenkinsfile` implements the ECS delivery path. `Jenkinsfile.infra` implements a Terraform approval/apply flow. `Jenkinsfile.codedeploy` implements a separate S3-to-EC2 release path. Their current gaps are recorded in the [dated audit](docs/current-state-audit-2026-09-14.md); the older `cicd/jenkins/Jenkinsfile` is stale.
 
-1. EHR emits an ADT event.
-2. Integration engine forwards patient and visit context to the API.
-3. API creates or resolves the canonical encounter ID.
-4. Encounter identity is stored in PostgreSQL.
-5. API returns the encounter ID to the caller.
-6. Downstream systems resolve the same ID throughout the visit lifecycle.
+## Tested
 
-```text
-EHR / ADT Event
-  -> Integration Engine
-  -> Encounter Platform API
-  -> PostgreSQL Encounter Store
-  -> API Response with Encounter ID
-  -> EHR Encounter Record
-  -> Downstream Systems
+These are **local results for the synced GitHub application revision**, not GitHub CI results. GitHub reported zero Actions runs, zero check runs and zero commit statuses at inspection.
+
+| Scope | Cases | September 14 result |
+| --- | ---: | --- |
+| Backend unit/validation | 35 | Passed |
+| Backend PostgreSQL integration | 18 | Passed against disposable PostgreSQL 15 |
+| Frontend dashboard | 1 | Unverified: suite cannot load; clean install fails on lockfile mismatch |
+| Total in source | 54 | 53 passed locally; one unverified |
+
+The backend suite also passed with application and database timezones set to `America/New_York`. Repeated runs do not increase the unique test count. Coverage includes concurrent delivery, retry identity, lifecycle rules, rollback, HTTP responses, migration and timestamp behavior.
+
+Backend `npm test -- --runInBand` without `TEST_DATABASE_URL` passes 35 tests and **skips 18**. To require database coverage, configure a disposable PostgreSQL database and run:
+
+```powershell
+cd apps/backend
+npm ci
+$env:TEST_DATABASE_URL='postgresql://postgres:password@127.0.0.1:5432/encounter_test'
+$env:TZ='UTC'
+$env:TEST_DB_TIMEZONE='UTC'
+npm run test:integration
 ```
 
-## API Capabilities
+The harness creates and removes uniquely named schemas. See the [contract](docs/normalized-adt.md) for the second timezone run and database requirements.
 
-### ADT Ingestion
+Terraform initialization with `-backend=false`, `terraform validate`, and `terraform fmt -check -recursive` passed using AWS provider 5.100.0. This validates configuration; no AWS plan or apply was run. Jenkins pipelines were reviewed as source, not executed.
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/encounters/from-adt` | POST | Ingest ADT_A01, ADT_A02, ADT_A03, ADT_A04, and ADT_A08 events |
+## Deployed
 
-### Encounter Resolution
+**No current AWS deployment is verified by this audit.** GitHub has the September application changes, but publishing source does not establish that ECS or EC2 runs that revision. GitHub's deployments API returned no records; this does not rule out externally managed deployments.
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/encounters/resolve?mrn=X&csn=Y` | GET | Resolve encounter ID by external identifiers |
+All AWS components are classified as **implemented but not recently validated in AWS**. No current ALB endpoint, healthy ECS task, Jenkins release, CodeDeploy deployment or rollback result is claimed.
 
-### Encounter Lifecycle
+The intended default path is Jenkins → ECR → ECS Fargate behind an ALB → RDS. The optional path packages the backend for S3 → CodeDeploy → an existing EC2 host. DNS/HTTPS is optional in the architecture, but its current input wiring needs correction before use.
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/encounters` | POST | Create an encounter directly |
-| `/api/encounters` | GET | List and filter encounters |
-| `/api/encounters/:id` | GET | Get encounter details and status history |
-| `/api/encounters/:id/status` | PATCH | Advance lifecycle status |
-| `/api/encounters/stats` | GET | Return operational dashboard metrics |
+The [ECS runbook](docs/runbooks/deployment.md) and [EC2/CodeDeploy guide](docs/runbooks/production-ec2-codedeploy.md) describe intended procedures. Use the [dated audit](docs/current-state-audit-2026-09-14.md) for their current validation limits.
 
-All API consumers can pass `X-Source-System` to identify the calling integration or hospital system for audit context.
+## Remaining
 
-## ADT Event Behavior
+1. Repair the frontend package lock: `react-router-dom` is declared but missing from the lockfile. Verify a clean install, frontend test and production build.
+2. Add a required PostgreSQL integration gate and publish test results tied to the tested commit. Current Jenkins definitions do not configure `TEST_DATABASE_URL`; the root pipeline also skips testing when `DEPLOY=false`.
+3. Make infrastructure execution reproducible: supply environment-specific state keys and variables. Local `infra/environments/*.tfvars` files are ignored and absent from GitHub. Correct the HTTPS/DNS dependency and retire the stale nested Jenkinsfile.
+4. Add deployment migration orchestration. Reconcile legacy data, back up the database, and coordinate writer cutover as documented in the ADT contract.
+5. Verify release identity and promotion: immutable image/artifact references, images present in the target environment, clear Terraform/Jenkins ownership, and an actual post-deployment ADT create/resolve/retry check. `/health` alone can return 200 when the database is not configured.
+6. Capture current AWS evidence before promoting any infrastructure claim: commit, Jenkins build, task definition or deployment ID, image digest or S3 version, endpoint results and rollback evidence.
+7. Add authentication/RBAC, operational alarms and dashboards, recovery/restore verification and OpenAPI documentation. Blue/green deployment remains unimplemented.
 
-| Event | Meaning | Behavior |
-| --- | --- | --- |
-| `ADT_A01` | Admit | Creates or resolves encounter as `checked-in` |
-| `ADT_A02` | Transfer | Advances existing encounter to `in-progress` |
-| `ADT_A03` | Discharge | Advances existing encounter to `discharged` |
-| `ADT_A04` | Register | Creates or resolves encounter as `created` |
-| `ADT_A08` | Update | Updates metadata on an existing encounter |
-
-Normalized ADT envelopes use database-enforced scoped message and visit identities. Exact retries return the stored response; invalid transitions and stale events are rejected. See the [envelope contract, migration procedure and integration tests](docs/normalized-adt.md). Native HL7 v2 parsing is not implemented.
-
-## Cloud Architecture
-
-- React frontend served by Nginx container
-- Node.js/Express backend API
-- PostgreSQL persistence on Amazon RDS
-- ECS Fargate service running frontend and backend containers
-- ALB path-based routing for `/api/*` and frontend traffic
-- ECR repositories for immutable image tags
-- Secrets Manager for database connection configuration
-- CloudWatch Logs for container output
-- Terraform modules for VPC, security groups, ALB, ECS, ECR, RDS, IAM, secrets, and optional DNS
-
-## CI/CD Pipeline
-
-1. Jenkins checks out the repository.
-2. Backend dependencies are installed with `npm ci`.
-3. Backend tests run as a deployment gate.
-4. Frontend dependencies are installed and production build is created.
-5. Backend and frontend Docker images are built.
-6. Images are tagged with the Jenkins build number and pushed to ECR.
-7. Jenkins renders a new ECS task definition revision.
-8. ECS service is updated to the exact task definition ARN.
-9. Jenkins waits for ECS service stability.
-
-Production deployments support promotion by image tag, with a manual approval gate before rollout.
-
-## Local Development
+For local development, the Compose definition exposes frontend port 3000, backend port 8080 and PostgreSQL port 5432:
 
 ```bash
 docker compose up --build
 ```
 
-Default local services:
+Database migrations are a separate explicit step; Compose does not run them automatically. Configure `DATABASE_URL` and `DB_SSL=false` for the local database, then run `npm run migrate` from `apps/backend`. The frontend clean-install issue above remains unresolved in this audited revision.
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8080`
-- PostgreSQL: `localhost:5432`
-
-Run backend tests:
-
-```bash
-cd apps/backend
-npm test
-```
-
-## Terraform Notes
-
-Route 53 and HTTPS are optional.
-
-Default portfolio deployment:
-
-```hcl
-enable_dns   = false
-enable_https = false
-```
-
-Custom domain deployment:
-
-```hcl
-enable_dns   = true
-enable_https = true
-domain_name  = "encounters.example.com"
-```
-
-## Validation Scenario
-
-PostgreSQL integration tests exercise concurrent message delivery, scoped visit identity, lifecycle updates and migration from the original schema. Run them using the instructions in [the ADT contract](docs/normalized-adt.md).
-
-## Future Enhancements
-
-- API key authentication per source system
-- RBAC for operational users
-- Rollback automation by previous ECS task definition
-- CloudWatch alarms and dashboard
-- Blue/green deployment strategy
-- OpenAPI documentation
-
-## Portfolio Summary
-
-This project demonstrates cloud application delivery, healthcare interoperability modeling, infrastructure as code, containerized deployments, CI/CD automation, and production-oriented AWS architecture.
-
-Built by **Malcolm Sesay**
-
-[LinkedIn](https://www.linkedin.com/in/malcolmsesay/)
-
-## Tags
-
-`#DevOps` `#AWS` `#CICD` `#CloudEngineering` `#Jenkins` `#ECS` `#Docker` `#Terraform` `#HealthcareTech` `#Interoperability`
+Built by **Malcolm Sesay** · [LinkedIn](https://www.linkedin.com/in/malcolmsesay/)
