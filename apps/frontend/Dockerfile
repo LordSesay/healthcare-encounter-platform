@@ -1,12 +1,15 @@
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
 ARG REACT_APP_API_URL=/api
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ARG REACT_APP_DEMO_MODE=false
+ENV REACT_APP_DEMO_MODE=$REACT_APP_DEMO_MODE
 
-COPY package.json ./
-RUN npm install
+# Install exactly what the lockfile pins.
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
 
 COPY . .
 RUN npm run build
