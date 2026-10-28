@@ -1,6 +1,7 @@
 const express = require('express');
 const { CORS_ORIGIN } = require('./config');
 const { generateEncounterId } = require('./utils/id-generator');
+const { createM2MAuth } = require('./security/m2m');
 
 const healthRoutes = require('./routes/health');
 const encounterRoutes = require('./routes/encounters');
@@ -19,6 +20,9 @@ app.use((req, res, next) => {
 });
 
 app.use(healthRoutes);
+// All /api routes require verified M2M tokens; /health is an ALB probe only.
+// Auth config must exist at startup. No unauthenticated browser API.
+app.use('/api', createM2MAuth());
 app.use('/api/encounters', adtRoutes);
 app.use('/api/encounters', encounterRoutes);
 
