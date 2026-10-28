@@ -1,0 +1,13 @@
+services:
+  postgres:
+    container_name: hep-audit-postgres
+    ports: !override ["127.0.0.1:15432:5432"]
+  backend:
+    container_name: hep-audit-backend
+    ports: !override ["127.0.0.1:18080:8080"]
+  frontend:
+    container_name: hep-audit-frontend
+    ports: !override ["127.0.0.1:13000:80"]
+volumes:
+  pgdata:
+    name: hep-audit-pgdata

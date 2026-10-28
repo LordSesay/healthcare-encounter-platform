@@ -1,0 +1,15 @@
+### teardown 2026-10-28T18:33:42Z
+ Container hep-audit-frontend Removed 
+ Container hep-audit-backend Removed 
+ Container hep-audit-postgres Removed 
+ Dangling images Removed 
+ Image hep-audit-frontend:latest Removed 
+ Image hep-audit-backend:latest Removed 
+ Volume hep-audit-pgdata Removed 
+ Network hep-audit_default Removed 
+removed verification tool images (groovy, shellcheck)
+containers: 0  volumes: 0  networks: 0
+pre-existing July containers:
+encounter-backend Exited (255) 3 months ago
+encounter-frontend Exited (255) 3 months ago
+encounter-postgres Exited (255) 3 months ago

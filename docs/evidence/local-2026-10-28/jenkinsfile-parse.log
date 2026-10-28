@@ -1,0 +1,10 @@
+WARNING: Using incubator modules: jdk.incubator.vector, jdk.incubator.foreign
+unknown recognition error type: groovyjarjarantlr4.v4.runtime.LexerNoViableAltException
+PARSE FAIL /w/Jenkinsfile
+startup failed:
+/w/Jenkinsfile: 269: token recognition error at: '(' @ line 269, column 38.
+                     "occurred_at": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+                                        ^
+
+1 error
+PARSE OK   /w/Jenkinsfile.infra

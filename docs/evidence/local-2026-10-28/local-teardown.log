@@ -1,0 +1,32 @@
+### teardown 2026-10-28T18:12:43Z
+ Container hep-audit-frontend Stopping 
+ Container hep-audit-frontend Stopped 
+ Container hep-audit-frontend Removing 
+ Container hep-audit-frontend Removed 
+ Container hep-audit-backend Stopping 
+ Container hep-audit-backend Stopped 
+ Container hep-audit-backend Removing 
+ Container hep-audit-backend Removed 
+ Container hep-audit-postgres Stopping 
+ Container hep-audit-postgres Stopped 
+ Container hep-audit-postgres Removing 
+ Container hep-audit-postgres Removed 
+ Volume hep-audit-pgdata Removing 
+ Network hep-audit_default Removing 
+ Image hep-audit-frontend:latest Removing 
+ Image hep-audit-backend:latest Removing 
+ Image hep-audit-frontend:latest Removed 
+ Image hep-audit-backend:latest Removed 
+ Volume hep-audit-pgdata Removed 
+ Network hep-audit_default Removed 
+removed groovy:4.0-jdk17 (pulled for parse check)
+### post-teardown checks
+containers: 0
+volumes: 1
+networks: 0
+pre-existing July containers untouched:
+encounter-backend Exited (255) 3 months ago
+encounter-frontend Exited (255) 3 months ago
+encounter-postgres Exited (255) 3 months ago
+hep-audit_pgdata
+volumes after: 0
