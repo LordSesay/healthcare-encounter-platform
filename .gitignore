@@ -14,8 +14,14 @@ yarn-error.log*
 *.tfstate
 *.tfstate.*
 *.tfvars
+# Environment inputs are non-secret and must be in the checkout for Jenkins.
+# Never put db_password or other secrets in them; pass TF_VAR_* instead.
+!infra/environments/*.tfvars
 *.tfvars.json
 crash.log
+*.tfplan
+infra/tfplan
+infra/tfplan.txt
 crash.*.log
 override.tf
 override.tf.json

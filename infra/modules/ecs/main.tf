@@ -17,6 +17,11 @@ variable "log_retention_days" { type = number }
 variable "kms_key_arn" { type = string }
 variable "min_capacity" { type = number }
 variable "max_capacity" { type = number }
+variable "auth_user_pool_id" { type = string }
+variable "auth_client_ids" { type = list(string) }
+variable "auth_read_scope" { type = string }
+variable "auth_write_scope" { type = string }
+variable "app_version" { type = string }
 
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}-${var.environment}"
@@ -47,7 +52,14 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         { name = "PORT", value = "8080" },
         { name = "CORS_ORIGIN", value = "http://${var.alb_dns_name}" },
-        { name = "NODE_ENV", value = var.environment }
+        { name = "NODE_ENV", value = "production" },
+        { name = "APP_ENV", value = var.environment },
+        { name = "APP_VERSION", value = var.app_version },
+        { name = "DB_SSL_CA_FILE", value = "/app/certs/rds-global-bundle.pem" },
+        { name = "AUTH_COGNITO_USER_POOL_ID", value = var.auth_user_pool_id },
+        { name = "AUTH_M2M_CLIENT_IDS", value = join(",", var.auth_client_ids) },
+        { name = "AUTH_READ_SCOPE", value = var.auth_read_scope },
+        { name = "AUTH_WRITE_SCOPE", value = var.auth_write_scope }
       ]
       secrets = [{ name = "DATABASE_URL", valueFrom = var.secret_arn }]
       logConfiguration = {
@@ -63,9 +75,6 @@ resource "aws_ecs_task_definition" "app" {
       name         = "frontend"
       image        = var.frontend_image
       portMappings = [{ containerPort = 80, protocol = "tcp" }]
-      environment = [
-        { name = "REACT_APP_API_URL", value = "http://${var.alb_dns_name}" }
-      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -79,11 +88,23 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 resource "aws_ecs_service" "app" {
-  name            = "${var.project_name}-${var.environment}-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  launch_type     = "FARGATE"
-  desired_count   = var.desired_count
+  name                              = "${var.project_name}-${var.environment}-service"
+  cluster                           = aws_ecs_cluster.main.id
+  task_definition                   = aws_ecs_task_definition.app.arn
+  launch_type                       = "FARGATE"
+  desired_count                     = var.desired_count
+  health_check_grace_period_seconds = 60
+
+  # Jenkins and the cycle script roll out task definitions; autoscaling owns
+  # the running count. Terraform only sets both on creation.
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = var.private_app_subnet_ids
@@ -150,3 +171,5 @@ resource "aws_appautoscaling_policy" "memory" {
 
 output "cluster_name" { value = aws_ecs_cluster.main.name }
 output "service_name" { value = aws_ecs_service.app.name }
+output "task_definition_arn" { value = aws_ecs_task_definition.app.arn }
+output "log_group_name" { value = aws_cloudwatch_log_group.ecs.name }

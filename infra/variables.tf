@@ -19,6 +19,19 @@ variable "vpc_cidr" {
   default = "10.0.0.0/16"
 }
 
+# Immutable image tag (git SHA + build) deployed by Terraform on service
+# creation. Later rollouts go through Jenkins or scripts/aws-cycle.sh.
+variable "image_tag" {
+  type        = string
+  default     = "bootstrap"
+  description = "ECR image tag for both containers. Never 'latest'; repositories are immutable."
+
+  validation {
+    condition     = var.image_tag != "latest" && can(regex("^[A-Za-z0-9_.-]{1,128}$", var.image_tag))
+    error_message = "image_tag must be a valid, immutable ECR tag other than 'latest'."
+  }
+}
+
 # ECS
 variable "ecs_desired_count" {
   type    = number
