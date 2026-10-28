@@ -1,0 +1,9 @@
+workflow-aggregator
+git
+credentials
+credentials-binding
+aws-credentials
+pipeline-stage-view
+timestamper
+antisamy-markup-formatter
+configuration-as-code

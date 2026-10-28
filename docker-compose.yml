@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +24,15 @@ services:
       CORS_ORIGIN: http://localhost:3000
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/encounters
       DB_SSL: "false"
+      # HEP-SEC-001: /api always requires a verified Cognito M2M token. The
+      # placeholders let the API start locally but no token can ever verify
+      # against them (fail-closed). Set real values in .env to call /api.
+      AUTH_COGNITO_USER_POOL_ID: ${AUTH_COGNITO_USER_POOL_ID:-us-east-1_LocalPlaceholder}
+      AUTH_M2M_CLIENT_IDS: ${AUTH_M2M_CLIENT_IDS:-local-placeholder-client}
+      AUTH_READ_SCOPE: ${AUTH_READ_SCOPE:-encounters/read}
+      AUTH_WRITE_SCOPE: ${AUTH_WRITE_SCOPE:-encounters/write}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,14 +41,12 @@ services:
     build:
       context: ./apps/frontend
       args:
-        # Local dev: points to backend container via host port
-        # Production (ECS/ALB): uses relative /api/ path (set in Dockerfile/CI)
-        REACT_APP_API_URL: http://localhost:8080/api
+        # The browser is not an API client (HEP-SEC-001): the local UI is the
+        # synthetic in-memory demo, bound to loopback only.
+        REACT_APP_DEMO_MODE: "true"
     container_name: encounter-frontend
     ports:
-      - "3000:80"
-    depends_on:
-      - backend
+      - "127.0.0.1:3000:80"
 
 volumes:
   pgdata:

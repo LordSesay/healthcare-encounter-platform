@@ -7,12 +7,41 @@ pipeline {
     buildDiscarder(logRotator(numToKeepStr: '10'))
   }
 
+  parameters {
+    choice(
+      name: 'ENVIRONMENT',
+      choices: ['dev', 'staging', 'prod'],
+      description: 'Target environment to plan/apply infrastructure for'
+    )
+    choice(
+      name: 'ACTION',
+      choices: ['apply', 'destroy'],
+      description: 'apply creates/updates; destroy tears the environment down (prod is refused)'
+    )
+    string(
+      name: 'IMAGE_TAG',
+      defaultValue: 'bootstrap',
+      description: 'Immutable image tag used only when the ECS service is first created (later rollouts go through Jenkinsfile)'
+    )
+  }
+
   environment {
     AWS_REGION = 'us-east-1'
     INFRA_DIR  = 'infra'
+    TF_IN_AUTOMATION = 'true'
   }
 
   stages {
+    stage('Guard') {
+      steps {
+        script {
+          if (params.ACTION == 'destroy' && params.ENVIRONMENT == 'prod') {
+            error('Refusing to destroy prod from the pipeline')
+          }
+        }
+      }
+    }
+
     stage('Terraform Init') {
       steps {
         withCredentials([
@@ -20,8 +49,10 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
-            sh 'rm -f terraform.tfstate terraform.tfstate.backup'
-            sh 'terraform init -input=false -reconfigure'
+            sh '''
+              terraform init -input=false -reconfigure \
+                -backend-config="key=env/$ENVIRONMENT/terraform.tfstate"
+            '''
           }
         }
       }
@@ -29,13 +60,8 @@ pipeline {
 
     stage('Terraform Validate') {
       steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh 'terraform validate'
-          }
+        dir("${INFRA_DIR}") {
+          sh 'terraform validate'
         }
       }
     }
@@ -47,7 +73,15 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
-            sh 'terraform plan -no-color -out=tfplan'
+            sh '''
+              DESTROY_FLAG=""
+              [ "$ACTION" = destroy ] && DESTROY_FLAG="-destroy"
+              terraform plan -input=false -no-color $DESTROY_FLAG -out=tfplan \
+                -var-file="environments/$ENVIRONMENT.tfvars" \
+                -var="environment=$ENVIRONMENT" \
+                -var="image_tag=$IMAGE_TAG"
+              terraform show -no-color tfplan > tfplan.txt
+            '''
           }
         }
       }
@@ -58,8 +92,8 @@ pipeline {
         timeout(time: 2, unit: 'HOURS')
       }
       steps {
-        input message: 'Review the Terraform plan above. Approve to apply?',
-              ok: 'Apply Infrastructure Changes'
+        input message: "Review the Terraform ${params.ACTION} plan for ${params.ENVIRONMENT}. Approve?",
+              ok: "Run terraform ${params.ACTION}"
       }
     }
 
@@ -70,7 +104,23 @@ pipeline {
           string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
         ]) {
           dir("${INFRA_DIR}") {
-            sh 'terraform apply -no-color tfplan'
+            sh 'terraform apply -input=false -no-color tfplan'
+          }
+        }
+      }
+    }
+
+    stage('Capture Outputs') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+        ]) {
+          dir("${INFRA_DIR}") {
+            sh '''
+              mkdir -p ../docs/evidence
+              cp tfplan.txt "../docs/evidence/tf-$ACTION-plan-$ENVIRONMENT-build-$BUILD_NUMBER.txt"
+              terraform output -json > "../docs/evidence/tf-outputs-$ENVIRONMENT-build-$BUILD_NUMBER.json"
+            '''
           }
         }
       }
@@ -78,11 +128,14 @@ pipeline {
   }
 
   post {
+    always {
+      archiveArtifacts artifacts: 'docs/evidence/tf-*', allowEmptyArchive: true, fingerprint: true
+    }
     success {
-      echo 'Infrastructure changes applied successfully.'
+      echo "Terraform ${params.ACTION} completed for ${params.ENVIRONMENT}."
     }
     failure {
-      echo 'Infrastructure pipeline failed. Check logs.'
+      echo "Infrastructure pipeline failed for ${params.ENVIRONMENT}. Check logs."
     }
   }
 }
