@@ -49,6 +49,6 @@ resource "aws_db_instance" "postgres" {
 
 output "endpoint" { value = aws_db_instance.postgres.endpoint }
 output "database_url" {
-  value     = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/${var.db_name}"
+  value     = "postgresql://${urlencode(var.db_username)}:${urlencode(var.db_password)}@${aws_db_instance.postgres.endpoint}/${var.db_name}"
   sensitive = true
 }

@@ -16,10 +16,17 @@ module "security" {
   jenkins_private_ip      = var.jenkins_private_ip
 }
 
+locals {
+  # Non-prod environments are disposable: deploy/teardown cycles must be able
+  # to destroy and recreate them without waiting out recovery windows.
+  disposable = var.environment != "prod"
+}
+
 module "ecr" {
   source       = "./modules/ecr"
   project_name = var.project_name
   environment  = var.environment
+  force_delete = local.disposable
 }
 
 module "dns" {
@@ -78,6 +85,19 @@ module "secrets" {
   environment  = var.environment
   aws_region   = var.aws_region
   database_url = module.rds.database_url
+
+  secret_recovery_window_days = local.disposable ? 0 : 7
+  kms_deletion_window_days    = local.disposable ? 7 : 30
+}
+
+module "cognito" {
+  source       = "./modules/cognito"
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  kms_key_arn  = module.secrets.kms_key_arn
+
+  secret_recovery_window_days = local.disposable ? 0 : 7
 }
 
 module "iam" {
@@ -98,8 +118,9 @@ module "ecs" {
   frontend_tg_arn        = module.alb.frontend_tg_arn
   backend_tg_arn         = module.alb.backend_tg_arn
   execution_role_arn     = module.iam.execution_role_arn
-  backend_image          = "${module.ecr.backend_repo_url}:latest"
-  frontend_image         = "${module.ecr.frontend_repo_url}:latest"
+  backend_image          = "${module.ecr.backend_repo_url}:${var.image_tag}"
+  frontend_image         = "${module.ecr.frontend_repo_url}:${var.image_tag}"
+  app_version            = var.image_tag
   alb_dns_name           = module.alb.alb_dns_name
   secret_arn             = module.secrets.secret_arn
   desired_count          = var.ecs_desired_count
@@ -109,6 +130,10 @@ module "ecs" {
   kms_key_arn            = module.secrets.kms_key_arn
   min_capacity           = var.ecs_min_capacity
   max_capacity           = var.ecs_max_capacity
+  auth_user_pool_id      = module.cognito.user_pool_id
+  auth_client_ids        = module.cognito.client_ids
+  auth_read_scope        = module.cognito.read_scope
+  auth_write_scope       = module.cognito.write_scope
 }
 
 module "codedeploy" {

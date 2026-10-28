@@ -2,12 +2,15 @@ variable "project_name" { type = string }
 variable "environment" { type = string }
 variable "aws_region" { type = string }
 variable "database_url" { type = string }
+variable "secret_recovery_window_days" { type = number }
+variable "kms_deletion_window_days" { type = number }
 
 data "aws_caller_identity" "current" {}
 
 resource "aws_kms_key" "secrets" {
-  description         = "KMS key for ${var.environment} secrets"
-  enable_key_rotation = true
+  description             = "KMS key for ${var.environment} secrets"
+  enable_key_rotation     = true
+  deletion_window_in_days = var.kms_deletion_window_days
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -45,7 +48,7 @@ resource "aws_kms_alias" "secrets" {
 resource "aws_secretsmanager_secret" "database_url" {
   name                    = "${var.project_name}/${var.environment}/database-url"
   kms_key_id              = aws_kms_key.secrets.arn
-  recovery_window_in_days = 0
+  recovery_window_in_days = var.secret_recovery_window_days
 
   tags = { Environment = var.environment }
 }

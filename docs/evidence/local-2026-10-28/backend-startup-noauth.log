@@ -1,0 +1,21 @@
+
+> backend@1.0.0 start
+> node index.js
+
+/app/security/m2m.js:17
+    throw new Error('AUTH_COGNITO_USER_POOL_ID is required (e.g. us-east-1_XXXXXXXX)');
+    ^
+
+Error: AUTH_COGNITO_USER_POOL_ID is required (e.g. us-east-1_XXXXXXXX)
+    at readConfig (/app/security/m2m.js:17:11)
+    at createM2MAuth (/app/security/m2m.js:36:35)
+    at Object.<anonymous> (/app/app.js:25:17)
+    at Module._compile (node:internal/modules/cjs/loader:1521:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+    at Module.load (node:internal/modules/cjs/loader:1266:32)
+    at Module._load (node:internal/modules/cjs/loader:1091:12)
+    at Module.require (node:internal/modules/cjs/loader:1289:19)
+    at require (node:internal/modules/helpers:182:18)
+    at Object.<anonymous> (/app/index.js:1:13)
+
+Node.js v20.20.2

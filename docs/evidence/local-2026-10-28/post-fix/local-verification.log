@@ -1,0 +1,85 @@
+### 2026-10-28T18:32:27Z commit b70febb + working tree (post-fix)
+hep-audit-backend  Up 6 seconds
+hep-audit-frontend  Up 12 seconds
+hep-audit-postgres  Up 12 seconds (healthy)
+### backend image: node version, user, RDS CA bundle
+v24.22.1
+node
+ls: /app/certs/rds-global-bundle.pem: Permission denied
+grep: /app/certs/rds-global-bundle.pem: Permission denied
+node:fs:483
+    return binding.readFileUtf8(path, stringToFlags(options.flag));
+                   ^
+
+Error: EACCES: permission denied, open '/app/certs/rds-global-bundle.pem'
+    at readFileSync (node:fs:483:20)
+    at sslConfig (/app/models/db.js:9:66)
+    at [eval]:1:51
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3 {
+  errno: -13,
+  code: 'EACCES',
+  syscall: 'open',
+  path: '/app/certs/rds-global-bundle.pem'
+}
+
+Node.js v24.22.1
+### migrations
+migrate exit 0
+001_initial_schema.sql
+002_adt_identity.sql
+003_utc_instants.sql
+### smoke.sh (SMOKE_UNAUTH_ONLY=1: no Cognito locally)
+PASS  health — HTTP 200, database connected, version 1.0.0
+PASS  auth_required — no token -> 401
+PASS  forged_token — forged token -> 401
+SMOKE_UNAUTH_ONLY=1: authenticated ADT checks not run
+smoke exit 0
+### frontend (demo build, loopback)
+GET / -> HTTP 200
+demo banner in bundle: 1
+80/tcp -> 127.0.0.1:13000
+### 2026-10-28T18:32:59Z backend rebuilt after /app/certs permission fix
+v24.22.1
+node
+drwxr-xr-x    1 root     root          4096 Oct 28 18:32 /app/certs
+-rw-r--r--    1 root     root        174560 Oct 14 22:38 /app/certs/rds-global-bundle.pem
+certificates: 114
+sslConfig: rejectUnauthorized=true, ca bytes=174560
+### backend started with DB_SSL_CA_FILE set (as in ECS) loads the CA and refuses non-TLS local Postgres
+node:fs:483
+    return binding.readFileUtf8(path, stringToFlags(options.flag));
+                   ^
+
+Error: ENOENT: no such file or directory, open 'C:/Program Files/Git/app/certs/rds-global-bundle.pem'
+    at readFileSync (node:fs:483:20)
+    at sslConfig (/app/models/db.js:9:66)
+    at Object.<anonymous> (/app/models/db.js:15:8)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.require (node:internal/modules/cjs/loader:1674:12)
+    at require (node:internal/modules/helpers:157:16) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:/Program Files/Git/app/certs/rds-global-bundle.pem'
+}
+
+Node.js v24.22.1
+### smoke.sh rerun (SMOKE_UNAUTH_ONLY=1)
+PASS  health — HTTP 200, database connected, version 1.0.0
+PASS  auth_required — no token -> 401
+PASS  forged_token — forged token -> 401
+SMOKE_UNAUTH_ONLY=1: authenticated ADT checks not run
+smoke exit 0
+### rerun of TLS check with MSYS_NO_PATHCONV=1 (previous attempt: Git Bash rewrote the -e path; harness issue)
+expected TLS refusal: The server does not support SSL connections
+exit 0

@@ -1,8 +1,8 @@
-# Healthcare Encounter ID Source-of-Truth Platform
+"# Healthcare Encounter ID Source-of-Truth Platform
 
 A React, Node.js/Express and PostgreSQL prototype for generating, resolving and tracking canonical encounter identifiers across simulated hospital systems. Examples use synthetic patient and visit data.
 
-**Status checked September 14, 2026.** The September application changes are synced to GitHub at `4e6ec0b286a0770f64bdf108ec1183cf480dfe1d`. The backend has 53 locally passing tests. The frontend has one test whose execution is blocked by a lockfile mismatch. Current AWS deployment status is unverified.
+**Status checked October 28, 2026** (branch `audit/2026-10-28-deploy-readiness`, uncommitted). Backend: 85/85 tests pass locally against PostgreSQL 15. Frontend: 2/2 pass, and clean install and build work. Deploy blockers from the [October audit](docs/current-state-audit-2026-10-28.md) are fixed in source. Current AWS deployment status is **unverified**: no AWS cycle has run yet. See the [cycle runbook](docs/runbooks/aws-cycle.md).
 
 ## Implemented
 
@@ -27,26 +27,26 @@ An upstream integration engine submits normalized JSON ADT events. The API persi
 | `DELETE /api/encounters/:id` | Void an encounter |
 | `GET /api/encounters/stats` | Dashboard metrics |
 
-See the [normalized ADT contract](docs/normalized-adt.md) for required fields, lifecycle rules, response semantics and migration procedures. Source identity is caller asserted; authentication is still remaining work.
+See the [normalized ADT contract](docs/normalized-adt.md) for required fields, lifecycle rules, response semantics and migration procedures. All `/api` routes require a verified Cognito machine-to-machine token ([HEP-SEC-001](docs/security/HEP-SEC-001-M2M.md)). Terraform provisions the user pool and the integration-engine client. `source_system` and `facility_id` remain caller asserted.
 
 Infrastructure code defines VPC/subnets/NAT, security groups, ECR, ALB, ECS Fargate, RDS PostgreSQL, IAM, Secrets Manager/KMS, CloudWatch Logs and CPU/memory autoscaling. Route 53/ACM and EC2/CodeDeploy are optional implementations.
 
-The root `Jenkinsfile` implements the ECS delivery path. `Jenkinsfile.infra` implements a Terraform approval/apply flow. `Jenkinsfile.codedeploy` implements a separate S3-to-EC2 release path. Their current gaps are recorded in the [dated audit](docs/current-state-audit-2026-09-14.md); the older `cicd/jenkins/Jenkinsfile` is stale.
+The root `Jenkinsfile` implements the ECS delivery path: tests, immutable SHA-tagged images, an in-VPC migration task, rollout and an authenticated ADT smoke test. `Jenkinsfile.infra` implements Terraform plan, approval, then apply or destroy. `scripts/aws-cycle.sh` runs a complete deploy → verify → evidence → teardown cycle for a disposable environment ([runbook](docs/runbooks/aws-cycle.md)).
 
 ## Tested
 
-These are **local results for the synced GitHub application revision**, not GitHub CI results. GitHub reported zero Actions runs, zero check runs and zero commit statuses at inspection.
+These are **local results on the October 28 working tree** (not GitHub CI). Raw output is in [`docs/evidence/local-2026-10-28/`](docs/evidence/local-2026-10-28/).
 
-| Scope | Cases | September 14 result |
+| Scope | Cases | October 28 result |
 | --- | ---: | --- |
-| Backend unit/validation | 35 | Passed |
+| Backend unit (validation, repository, M2M auth, DB TLS config) | 67 | Passed |
 | Backend PostgreSQL integration | 18 | Passed against disposable PostgreSQL 15 |
-| Frontend dashboard | 1 | Unverified: suite cannot load; clean install fails on lockfile mismatch |
-| Total in source | 54 | 53 passed locally; one unverified |
+| Frontend (dashboard, demo adapter) | 2 | Passed after clean `npm ci` |
+| Total in source | 87 | 87 passed locally |
 
 The backend suite also passed with application and database timezones set to `America/New_York`. Repeated runs do not increase the unique test count. Coverage includes concurrent delivery, retry identity, lifecycle rules, rollback, HTTP responses, migration and timestamp behavior.
 
-Backend `npm test -- --runInBand` without `TEST_DATABASE_URL` passes 35 tests and **skips 18**. To require database coverage, configure a disposable PostgreSQL database and run:
+Backend `npm test -- --runInBand` without `TEST_DATABASE_URL` passes 67 tests and **skips 18**. To require database coverage, configure a disposable PostgreSQL database and run:
 
 ```powershell
 cd apps/backend
@@ -67,26 +67,26 @@ Terraform initialization with `-backend=false`, `terraform validate`, and `terra
 
 All AWS components are classified as **implemented but not recently validated in AWS**. No current ALB endpoint, healthy ECS task, Jenkins release, CodeDeploy deployment or rollback result is claimed.
 
-The intended default path is Jenkins → ECR → ECS Fargate behind an ALB → RDS. The optional path packages the backend for S3 → CodeDeploy → an existing EC2 host. DNS/HTTPS is optional in the architecture, but its current input wiring needs correction before use.
+The intended default path is Jenkins → ECR → ECS Fargate behind an ALB → RDS. The EC2/CodeDeploy pipeline and scripts were removed. Its opt-in Terraform module (`enable_ec2_codedeploy`) remains but has no release pipeline. DNS/HTTPS is optional in the architecture, but its current input wiring needs correction before use.
 
-The [ECS runbook](docs/runbooks/deployment.md) and [EC2/CodeDeploy guide](docs/runbooks/production-ec2-codedeploy.md) describe intended procedures. Use the [dated audit](docs/current-state-audit-2026-09-14.md) for their current validation limits.
+The [ECS runbook](docs/runbooks/deployment.md) and [AWS cycle runbook](docs/runbooks/aws-cycle.md) describe the procedures. Use the [October audit](docs/current-state-audit-2026-10-28.md) for their current validation limits.
 
 ## Remaining
 
-1. Repair the frontend package lock: `react-router-dom` is declared but missing from the lockfile. Verify a clean install, frontend test and production build.
-2. Add a required PostgreSQL integration gate and publish test results tied to the tested commit. Current Jenkins definitions do not configure `TEST_DATABASE_URL`; the root pipeline also skips testing when `DEPLOY=false`.
-3. Make infrastructure execution reproducible: supply environment-specific state keys and variables. Local `infra/environments/*.tfvars` files are ignored and absent from GitHub. Correct the HTTPS/DNS dependency and retire the stale nested Jenkinsfile.
-4. Add deployment migration orchestration. Reconcile legacy data, back up the database, and coordinate writer cutover as documented in the ADT contract.
-5. Verify release identity and promotion: immutable image/artifact references, images present in the target environment, clear Terraform/Jenkins ownership, and an actual post-deployment ADT create/resolve/retry check. `/health` alone can return 200 when the database is not configured.
-6. Capture current AWS evidence before promoting any infrastructure claim: commit, Jenkins build, task definition or deployment ID, image digest or S3 version, endpoint results and rollback evidence.
-7. Add authentication/RBAC, operational alarms and dashboards, recovery/restore verification and OpenAPI documentation. Blue/green deployment remains unimplemented.
+1. **Run the AWS cycle** (`scripts/aws-cycle.sh --env dev`) and commit its evidence folder. Until then, no AWS component is verified, including the Cognito token path, RDS TLS and the in-VPC migration task.
+2. Run `Jenkinsfile` and `Jenkinsfile.infra` on a real Jenkins. They are parse-checked only. Grant the Jenkins identity `ecs:RunTask`, `iam:PassRole` and read access to the M2M secret.
+3. Staging/prod tfvars set `enable_https = true` without `enable_dns`; supply a real domain before using them.
+4. Promotion across environments: `PROMOTE_TAG` only redeploys a tag that already exists in the target environment's repositories. There is no cross-repository copy.
+5. Production migrations still need backup, legacy-data reconciliation and writer cutover, as documented in the ADT contract.
+6. Add operational alarms and dashboards, restore verification and OpenAPI documentation. Blue/green deployment remains unimplemented.
 
-For local development, the Compose definition exposes frontend port 3000, backend port 8080 and PostgreSQL port 5432:
+For local development, Compose binds the demo frontend (3000), the backend (8080) and PostgreSQL (5432) to `127.0.0.1`:
 
 ```bash
 docker compose up --build
+docker exec encounter-backend node models/migrate.js
 ```
 
-Database migrations are a separate explicit step; Compose does not run them automatically. Configure `DATABASE_URL` and `DB_SSL=false` for the local database, then run `npm run migrate` from `apps/backend`. The frontend clean-install issue above remains unresolved in this audited revision.
+The frontend is the synthetic in-memory demo (HEP-SEC-001). The backend starts with placeholder Cognito settings, so `/health` works but every `/api` call returns 401. To call `/api` locally, put real `AUTH_COGNITO_USER_POOL_ID`, `AUTH_M2M_CLIENT_IDS`, `AUTH_READ_SCOPE` and `AUTH_WRITE_SCOPE` values in `.env`.
 
 Built by **Malcolm Sesay** · [LinkedIn](https://www.linkedin.com/in/malcolmsesay/)

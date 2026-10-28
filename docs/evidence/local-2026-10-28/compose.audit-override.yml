@@ -1,0 +1,19 @@
+services:
+  postgres:
+    container_name: hep-audit-postgres
+    ports: !override ["15432:5432"]
+  backend:
+    container_name: hep-audit-backend
+    environment:
+      AUTH_COGNITO_USER_POOL_ID: us-east-1_AuditFake1
+      AUTH_M2M_CLIENT_IDS: auditfakeclient
+      AUTH_READ_SCOPE: encounters/read
+      AUTH_WRITE_SCOPE: encounters/write
+      BUILD_NUMBER: audit-local
+    ports: !override ["18080:8080"]
+  frontend:
+    container_name: hep-audit-frontend
+    ports: !override ["13000:80"]
+volumes:
+  pgdata:
+    name: hep-audit-pgdata

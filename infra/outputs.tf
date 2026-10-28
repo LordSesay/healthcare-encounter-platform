@@ -22,6 +22,30 @@ output "ecs_service_name" {
   value = module.ecs.service_name
 }
 
+output "ecs_task_definition_arn" {
+  value = module.ecs.task_definition_arn
+}
+
+output "ecs_log_group_name" {
+  value = module.ecs.log_group_name
+}
+
+output "ecs_network" {
+  value = {
+    subnets         = module.vpc.private_app_subnet_ids
+    security_groups = [module.security.ecs_sg_id]
+  }
+}
+
+output "m2m_secret_id" {
+  value       = module.cognito.m2m_secret_id
+  description = "Secrets Manager secret holding the integration-engine client credentials and token URL."
+}
+
+output "cognito_user_pool_id" {
+  value = module.cognito.user_pool_id
+}
+
 output "rds_endpoint" {
   value = module.rds.endpoint
 }

@@ -1,0 +1,30 @@
+### health BEFORE migrations
+{"status":"healthy","service":"encounter-id-api","version":"audit-local","uptime":4,"database":"connected","memory":"62MB","timestamp":"2026-10-28T18:11:43.818Z"} HTTP 200
+### run migrations
+> node models/migrate.js
+
+          name          |          applied_at           
+------------------------+-------------------------------
+ 001_initial_schema.sql | 2026-10-28 18:11:44.296969+00
+ 002_adt_identity.sql   | 2026-10-28 18:11:44.296969+00
+ 003_utc_instants.sql   | 2026-10-28 18:11:44.296969+00
+(3 rows)
+
+### health AFTER migrations
+{"status":"healthy","service":"encounter-id-api","version":"audit-local","uptime":5,"database":"connected","memory":"64MB","timestamp":"2026-10-28T18:11:44.773Z"} HTTP 200
+### SEC-01 no token
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+{"error":"Service access token required"}
+### SEC-02 forged token
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token"
+{"error":"Invalid service access token"}
+### SEC-06 unauth write does not persist
+HTTP 401
+encounters rows=0
+### frontend
+GET / HTTP 200
+GET /encounters (SPA route) HTTP 200
+### frontend bundle API base
+http://localhost:8080/api

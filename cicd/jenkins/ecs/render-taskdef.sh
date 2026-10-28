@@ -6,6 +6,7 @@ SERVICE_NAME="$2"
 BACKEND_IMAGE="$3"
 FRONTEND_IMAGE="$4"
 AWS_REGION="$5"
+APP_VERSION="${6:-}"
 
 CURRENT_TASK_DEF_ARN=$(aws ecs describe-services \
   --cluster "$CLUSTER_NAME" \
@@ -22,12 +23,19 @@ aws ecs describe-task-definition \
   --query "taskDefinition" \
   > current-taskdef.json
 
+# Swap images and, when given, the APP_VERSION reported by /health.
 jq \
   --arg BACKEND_IMAGE "$BACKEND_IMAGE" \
   --arg FRONTEND_IMAGE "$FRONTEND_IMAGE" \
+  --arg APP_VERSION "$APP_VERSION" \
   '
   .containerDefinitions |= map(
-    if .name == "backend" then .image = $BACKEND_IMAGE
+    if .name == "backend" then
+      .image = $BACKEND_IMAGE
+      | if $APP_VERSION != "" then
+          .environment = ([(.environment // [])[] | select(.name != "APP_VERSION")]
+                          + [{name: "APP_VERSION", value: $APP_VERSION}])
+        else . end
     elif .name == "frontend" then .image = $FRONTEND_IMAGE
     else .
     end

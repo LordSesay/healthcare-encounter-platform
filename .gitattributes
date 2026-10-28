@@ -1,0 +1,4 @@
+# Shell scripts and pipelines run on Linux agents and Git Bash; keep LF.
+*.sh text eol=lf
+Jenkinsfile* text eol=lf
+*.pem binary

@@ -1,0 +1,24 @@
+{
+  "status": "pass-unauthenticated-only",
+  "run_id": "local-post-fix",
+  "base_url": "http://127.0.0.1:18080",
+  "unauthenticated_checks_only": true,
+  "checks": [
+    {
+      "check": "health",
+      "result": "pass",
+      "detail": "HTTP 200, database connected, version 1.0.0"
+    },
+    {
+      "check": "auth_required",
+      "result": "pass",
+      "detail": "no token -> 401"
+    },
+    {
+      "check": "forged_token",
+      "result": "pass",
+      "detail": "forged token -> 401"
+    }
+  ],
+  "finished_at": "2026-10-28T18:33:01Z"
+}
