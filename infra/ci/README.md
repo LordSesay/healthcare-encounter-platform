@@ -44,10 +44,15 @@ Then, on the Jenkins EC2 instance:
 
 ```bash
 aws ec2 associate-iam-instance-profile --instance-id <id> --iam-instance-profile Name=jenkins-encounter-platform-ci
-# Docker adds a network hop. Hop limit 1 (the default) hides the role from the container.
+# Keep the hop limit at 1. Jenkins uses host networking (cicd/jenkins/docker-compose.yml),
+# so it reaches the role; containers on the Docker bridge are one hop away and can't.
 aws ec2 modify-instance-metadata-options --instance-id <id> \
-  --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled
+  --http-tokens required --http-put-response-hop-limit 1 --http-endpoint enabled
 ```
+
+Why not hop limit 2? It would let Jenkins run on the bridge network, but it would also hand the role to every
+container on the host: `test-db`, image build steps running third-party `npm` install scripts, and anything
+started through the Docker socket. One malicious dependency could then push images and update the ECS service.
 
 ## Verification plan
 
@@ -69,16 +74,18 @@ Write each result into the evidence record as you run it. None of these have bee
 | --- | --- | --- | --- |
 | 6 | Identity is the instance role | `aws sts get-caller-identity --query Arn --output text` | `arn:aws:sts::<acct>:assumed-role/jenkins-encounter-platform-ci/i-...` |
 | 7 | No stored keys | `ls -l ~/.aws/credentials; env \| grep -c AWS_ACCESS_KEY_ID` | `No such file or directory`, then `0` |
-| 8 | Denied outside its scope | `aws s3 ls` | `AccessDenied` (ListAllMyBuckets isn't granted) |
-| 9 | Guard rejects a static key | `AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=y ./cicd/jenkins/verify-aws-identity.sh jenkins-encounter-platform-ci; echo $?` | `Refusing to run: AWS_ACCESS_KEY_ID is set...`, then `1` |
+| 8 | Bridge containers can't reach the role (run on the EC2 host, not in Jenkins) | `docker run --rm curlimages/curl -s -m 3 -o /dev/null -w '%{http_code}\n' -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60'` | `000` after about 3 s: the token response is dropped at `docker0`. A `200` here means the hop limit is above 1, so stop and fix it |
+| 9 | Denied outside its scope | `aws s3 ls` | `AccessDenied` (ListAllMyBuckets isn't granted) |
+| 10 | Guard rejects a static key | `AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=y ./cicd/jenkins/verify-aws-identity.sh jenkins-encounter-platform-ci; echo $?` | `Refusing to run: AWS_ACCESS_KEY_ID is set...`, then `1` |
+| 11 | Hop limit is really 1 | `aws ec2 describe-instances --instance-ids <id> --query 'Reservations[0].Instances[0].MetadataOptions.[HttpTokens,HttpPutResponseHopLimit]'` | `["required", 1]` |
 
 **Pipelines:**
 
 | # | Check | Expected |
 | --- | --- | --- |
-| 10 | `Jenkinsfile`, `ENVIRONMENT=dev`, `DEPLOY=false` | `Verify AWS Identity` passes; all test stages run |
-| 11 | `Jenkinsfile.infra`, `dev`, `apply`: stop at Manual Approval | `Assume Terraform Role` prints `assumed-role/terraform-encounter-platform-deployer/jenkins-infra-dev-<n>`; plan completes with no `AccessDenied` |
-| 12 | Full dev cycle: infra apply → `Jenkinsfile` deploy → smoke test → infra destroy | Every stage green; `aws-identity.json` in the archived evidence shows the role ARN |
+| 12 | `Jenkinsfile`, `ENVIRONMENT=dev`, `DEPLOY=false` | `Verify AWS Identity` passes; all test stages run |
+| 13 | `Jenkinsfile.infra`, `dev`, `apply`: stop at Manual Approval | `Assume Terraform Role` prints `assumed-role/terraform-encounter-platform-deployer/jenkins-infra-dev-<n>`; plan completes with no `AccessDenied` |
+| 14 | Full dev cycle: infra apply → `Jenkinsfile` deploy → smoke test → infra destroy | Every stage green; `aws-identity.json` in the archived evidence shows the role ARN |
 
 **If a stage fails with `AccessDenied`,** the error names the missing action. Add that one action to the matching statement in `policies.tf`, re-apply this root, and note the change in the build log. Never re-add an access key to get past it.
 
@@ -98,4 +105,5 @@ Write each result into the evidence record as you run it. None of these have bee
 - **IAM escalation is reduced, not eliminated.** The Terraform role can still `PutRolePolicy` on `encounter-platform-*` roles, and any role it creates could be given broad inline permissions. The full fix is a permissions boundary: require `iam:PermissionsBoundary` on `CreateRole` and set `permissions_boundary` on every role in `infra/modules`.
 - **Service permissions are coarse.** `ec2:*`, `rds:*` and similar are pinned to one region but not to resources. After a few clean applies, use IAM Access Analyzer's policy generation (it reads CloudTrail) to replace the wildcards with the actions Terraform actually called.
 - **CodeDeploy.** The optional `modules/codedeploy` attaches a policy to `var.jenkins_role_name`, which the Terraform role is now denied. If you enable `enable_ec2_codedeploy`, attach that policy from this root instead of setting `jenkins_role_name`.
+- **Host networking trade-off.** Jenkins isn't isolated from the host's network stack, and Docker port mappings no longer apply: 8080 and 50000 listen directly on the instance. The security group (22 and 8080 from your IP only, 50000 closed) is the control that matters. `test-db` publishes only on `127.0.0.1:5433`.
 - **Not yet tested.** `terraform validate` and an apply have not been run against AWS. The plan above is how this gets proven.

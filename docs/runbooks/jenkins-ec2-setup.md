@@ -21,10 +21,10 @@ Jenkins talks to the host Docker daemon via socket mount. No Docker-in-Docker.
 - Type: t3.medium (2 vCPU, 4 GB RAM minimum)
 - Storage: 30 GB gp3
 - IAM instance profile: `jenkins-encounter-platform-ci`, created by [`infra/ci`](../../infra/ci/README.md). The AWS CLI and Terraform inside the container get short-lived credentials from instance metadata. No access keys are stored on disk or in Jenkins.
-- Instance metadata: IMDSv2 required, hop limit **2**. Jenkins runs in a Docker container, which adds a network hop; with the default hop limit of 1 the container can't reach the instance role at all:
+- Instance metadata: IMDSv2 required, hop limit **1** (the default). Jenkins uses host networking (`network_mode: host` in `cicd/jenkins/docker-compose.yml`), so it adds no network hop and can reach the role. Containers on the Docker bridge are one hop away, and the token response expires before it reaches them. That covers `test-db`, image build steps (which run third-party `npm` install scripts), and anything launched through the Docker socket. Don't raise the hop limit to 2: that would hand the Jenkins role to every container on the host.
   ```bash
   aws ec2 modify-instance-metadata-options --instance-id <instance-id> \
-    --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled
+    --http-tokens required --http-put-response-hop-limit 1 --http-endpoint enabled
   ```
 - Security group inbound:
   - TCP 22 from your IP only
@@ -125,7 +125,7 @@ Go to **Manage Jenkins → Credentials → System → Global credentials → Add
 | ID | Type | Value |
 |----|------|-------|
 | `db-password` | Secret text | RDS database password — must match `TF_VAR_db_password` used in Terraform |
-| `test-database-url` | Secret text | `postgresql://postgres:testpass@test-db:5432/encounter_test` |
+| `test-database-url` | Secret text | `postgresql://postgres:testpass@127.0.0.1:5433/encounter_test` (Jenkins is on the host network, so it uses the published loopback port, not the `test-db` service name) |
 
 There is deliberately no AWS credential here. Both pipelines start with `cicd/jenkins/verify-aws-identity.sh`, which fails the build if AWS access keys are found in the environment or in `~/.aws/credentials`, or if the caller isn't the instance role. If an old `aws-credentials` entry exists from an earlier setup, delete it.
 

@@ -9,7 +9,8 @@ Check it off only when you have the output or screenshot to prove it.
 
 - [ ] AWS CLI configured and `aws sts get-caller-identity` returns your account ID
 - [ ] Jenkins running and reachable
-- [ ] `infra/ci` applied; Jenkins EC2 has the `jenkins-encounter-platform-ci` instance profile, IMDSv2 required, hop limit 2
+- [ ] `infra/ci` applied; Jenkins EC2 has the `jenkins-encounter-platform-ci` instance profile, IMDSv2 required, hop limit 1, Jenkins container on host networking
+- [ ] A container on the Docker bridge can NOT get a metadata token (see `infra/ci/README.md`, check 8)
 - [ ] From the Jenkins container, `aws sts get-caller-identity` shows `assumed-role/jenkins-encounter-platform-ci/...`
 - [ ] No AWS credential stored in Jenkins and no `~/.aws/credentials` in the container
 - [ ] Jenkins credentials configured:

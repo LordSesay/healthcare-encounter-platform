@@ -5,9 +5,13 @@ services:
       dockerfile: Dockerfile
     container_name: jenkins-encounter-ci
     restart: unless-stopped
-    ports:
-      - "8080:8080"
-      - "50000:50000"
+    # Host networking means no extra network hop, so Jenkins reaches the
+    # instance role with the IMDSv2 hop limit left at 1. Containers on the
+    # bridge network (test-db, build steps, anything started via the Docker
+    # socket) stay one hop away and cannot get the role's credentials.
+    # Ports are not published in this mode: Jenkins listens on the host's
+    # 8080/50000 directly, and the EC2 security group is the only gate.
+    network_mode: host
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
@@ -24,8 +28,10 @@ services:
     environment:
       POSTGRES_PASSWORD: testpass
       POSTGRES_DB: encounter_test
+    # Loopback only: Jenkins (host network) reaches it at 127.0.0.1:5433;
+    # nothing off the instance can.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
 
 volumes:
   jenkins_home:
