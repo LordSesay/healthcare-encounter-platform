@@ -9,8 +9,10 @@ Check it off only when you have the output or screenshot to prove it.
 
 - [ ] AWS CLI configured and `aws sts get-caller-identity` returns your account ID
 - [ ] Jenkins running and reachable
+- [ ] `infra/ci` applied; Jenkins EC2 has the `jenkins-encounter-platform-ci` instance profile, IMDSv2 required, hop limit 2
+- [ ] From the Jenkins container, `aws sts get-caller-identity` shows `assumed-role/jenkins-encounter-platform-ci/...`
+- [ ] No AWS credential stored in Jenkins and no `~/.aws/credentials` in the container
 - [ ] Jenkins credentials configured:
-  - `aws-credentials` (AWS IAM key with ECR/ECS/RDS/Secrets permissions)
   - `db-password` (the RDS master password you will set)
   - `test-database-url` (connection string for the disposable test database)
 - [ ] Docker running on the Jenkins agent

@@ -33,51 +33,62 @@ pipeline {
 
   // Only constants here: declarative `environment` values cannot be
   // overridden later with env.X, so derived values are set in 'Resolve Release'.
+  // AWS credentials come from the Jenkins EC2 instance role
+  // (infra/ci, role jenkins-encounter-platform-ci). No access keys are stored
+  // in Jenkins; 'Verify AWS Identity' fails the build if any are present.
   environment {
-    AWS_REGION   = 'us-east-1'
-    BACKEND_DIR  = 'apps/backend'
-    FRONTEND_DIR = 'apps/frontend'
-    APP_NAME     = 'encounter-platform'
-    ENV          = "${params.ENVIRONMENT}"
+    AWS_REGION        = 'us-east-1'
+    BACKEND_DIR       = 'apps/backend'
+    FRONTEND_DIR      = 'apps/frontend'
+    APP_NAME          = 'encounter-platform'
+    ENV               = "${params.ENVIRONMENT}"
+    JENKINS_ROLE_NAME = 'jenkins-encounter-platform-ci'
   }
 
   stages {
+
+    // ── ALWAYS: fail closed unless credentials come from the instance role ──
+
+    stage('Verify AWS Identity') {
+      steps {
+        sh './cicd/jenkins/verify-aws-identity.sh "$JENKINS_ROLE_NAME"'
+      }
+    }
 
     // ── ALWAYS: resolve account and immutable release identity ──────────────
 
     stage('Resolve Release') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          script {
-            def account = params.AWS_ACCOUNT_ID?.trim() ?:
-              sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
-            def commit = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
-            def registry = "${account}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+        script {
+          def account = params.AWS_ACCOUNT_ID?.trim() ?:
+            sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+          def commit = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+          def registry = "${account}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
 
-            env.AWS_ACCOUNT_ID = account
-            env.GIT_SHA        = commit
-            env.IMAGE_TAG      = params.PROMOTE_TAG?.trim() ?: "${commit}-b${env.BUILD_NUMBER}"
-            env.ECR_BACKEND    = "${registry}/${env.APP_NAME}-${env.ENV}-backend"
-            env.ECR_FRONTEND   = "${registry}/${env.APP_NAME}-${env.ENV}-frontend"
-            env.ECS_CLUSTER    = "${env.APP_NAME}-${env.ENV}-cluster"
-            env.ECS_SERVICE    = "${env.APP_NAME}-${env.ENV}-service"
-            env.ALB_NAME       = "${env.APP_NAME}-${env.ENV}-alb"
-            env.M2M_SECRET_ID  = "${env.APP_NAME}/${env.ENV}/m2m-client"
-            env.EVIDENCE_DIR   = "docs/evidence/jenkins-${env.ENV}-build-${env.BUILD_NUMBER}"
+          env.AWS_ACCOUNT_ID = account
+          env.GIT_SHA        = commit
+          env.IMAGE_TAG      = params.PROMOTE_TAG?.trim() ?: "${commit}-b${env.BUILD_NUMBER}"
+          env.ECR_BACKEND    = "${registry}/${env.APP_NAME}-${env.ENV}-backend"
+          env.ECR_FRONTEND   = "${registry}/${env.APP_NAME}-${env.ENV}-frontend"
+          env.ECS_CLUSTER    = "${env.APP_NAME}-${env.ENV}-cluster"
+          env.ECS_SERVICE    = "${env.APP_NAME}-${env.ENV}-service"
+          env.ALB_NAME       = "${env.APP_NAME}-${env.ENV}-alb"
+          env.M2M_SECRET_ID  = "${env.APP_NAME}/${env.ENV}/m2m-client"
+          env.EVIDENCE_DIR   = "docs/evidence/jenkins-${env.ENV}-build-${env.BUILD_NUMBER}"
 
-            if (env.IMAGE_TAG == 'latest') {
-              error('IMAGE_TAG must be immutable; latest is not allowed')
-            }
-            echo "Account: ${env.AWS_ACCOUNT_ID} | Env: ${env.ENV} | Commit: ${env.GIT_SHA} | Tag: ${env.IMAGE_TAG}"
+          if (env.IMAGE_TAG == 'latest') {
+            error('IMAGE_TAG must be immutable; latest is not allowed')
           }
-          sh '''
-            mkdir -p "$EVIDENCE_DIR"
-            jq -n --arg commit "$(git rev-parse HEAD)" --arg tag "$IMAGE_TAG" --arg env "$ENV" \
-              --arg build "$BUILD_NUMBER" --arg url "$BUILD_URL" --arg account "$AWS_ACCOUNT_ID" \
-              '{commit:$commit, image_tag:$tag, environment:$env, jenkins_build:$build, jenkins_url:$url, account:$account}' \
-              > "$EVIDENCE_DIR/release.json"
-          '''
+          echo "Account: ${env.AWS_ACCOUNT_ID} | Env: ${env.ENV} | Commit: ${env.GIT_SHA} | Tag: ${env.IMAGE_TAG}"
         }
+        sh '''
+          mkdir -p "$EVIDENCE_DIR"
+          jq -n --arg commit "$(git rev-parse HEAD)" --arg tag "$IMAGE_TAG" --arg env "$ENV" \
+            --arg build "$BUILD_NUMBER" --arg url "$BUILD_URL" --arg account "$AWS_ACCOUNT_ID" \
+            '{commit:$commit, image_tag:$tag, environment:$env, jenkins_build:$build, jenkins_url:$url, account:$account}' \
+            > "$EVIDENCE_DIR/release.json"
+          aws sts get-caller-identity --output json > "$EVIDENCE_DIR/aws-identity.json"
+        '''
       }
     }
 
@@ -154,12 +165,10 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
-          '''
-        }
+        sh '''
+          aws ecr get-login-password --region "$AWS_REGION" \
+          | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+        '''
       }
     }
 
@@ -181,17 +190,15 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          // Also proves a promoted tag exists in this environment's repositories.
-          sh '''
-            for repo in backend frontend; do
-              aws ecr describe-images --region "$AWS_REGION" \
-                --repository-name "$APP_NAME-$ENV-$repo" --image-ids imageTag="$IMAGE_TAG" \
-                --query 'imageDetails[0].{repository:repositoryName,digest:imageDigest,tags:imageTags,pushedAt:imagePushedAt}' \
-                > "$EVIDENCE_DIR/image-$repo.json"
-            done
-          '''
-        }
+        // Also proves a promoted tag exists in this environment's repositories.
+        sh '''
+          for repo in backend frontend; do
+            aws ecr describe-images --region "$AWS_REGION" \
+              --repository-name "$APP_NAME-$ENV-$repo" --image-ids imageTag="$IMAGE_TAG" \
+              --query 'imageDetails[0].{repository:repositoryName,digest:imageDigest,tags:imageTags,pushedAt:imagePushedAt}' \
+              > "$EVIDENCE_DIR/image-$repo.json"
+          done
+        '''
       }
     }
 
@@ -209,14 +216,12 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            ./cicd/jenkins/ecs/render-taskdef.sh "$ECS_CLUSTER" "$ECS_SERVICE" \
-              "$ECR_BACKEND:$IMAGE_TAG" "$ECR_FRONTEND:$IMAGE_TAG" "$AWS_REGION" "$IMAGE_TAG"
-            ./cicd/jenkins/ecs/register-taskdef.sh "$AWS_REGION"
-            cp new-taskdef-arn.txt "$EVIDENCE_DIR/taskdef-arn.txt"
-          '''
-        }
+        sh '''
+          ./cicd/jenkins/ecs/render-taskdef.sh "$ECS_CLUSTER" "$ECS_SERVICE" \
+            "$ECR_BACKEND:$IMAGE_TAG" "$ECR_FRONTEND:$IMAGE_TAG" "$AWS_REGION" "$IMAGE_TAG"
+          ./cicd/jenkins/ecs/register-taskdef.sh "$AWS_REGION"
+          cp new-taskdef-arn.txt "$EVIDENCE_DIR/taskdef-arn.txt"
+        '''
       }
     }
 
@@ -225,16 +230,14 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            NETWORK=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION" \
-              --query 'services[0].networkConfiguration.awsvpcConfiguration' --output json)
-            ./cicd/jenkins/ecs/run-migration.sh "$ECS_CLUSTER" "$(cat new-taskdef-arn.txt)" \
-              "$(echo "$NETWORK" | jq -r '.subnets | join(",")')" \
-              "$(echo "$NETWORK" | jq -r '.securityGroups | join(",")')" \
-              "$AWS_REGION" "$EVIDENCE_DIR"
-          '''
-        }
+        sh '''
+          NETWORK=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' --output json)
+          ./cicd/jenkins/ecs/run-migration.sh "$ECS_CLUSTER" "$(cat new-taskdef-arn.txt)" \
+            "$(echo "$NETWORK" | jq -r '.subnets | join(",")')" \
+            "$(echo "$NETWORK" | jq -r '.securityGroups | join(",")')" \
+            "$AWS_REGION" "$EVIDENCE_DIR"
+        '''
       }
     }
 
@@ -243,13 +246,11 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
-              --task-definition "$(cat new-taskdef-arn.txt)" --region "$AWS_REGION" > /dev/null
-            aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION"
-          '''
-        }
+        sh '''
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "$(cat new-taskdef-arn.txt)" --region "$AWS_REGION" > /dev/null
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION"
+        '''
       }
     }
 
@@ -260,18 +261,16 @@ pipeline {
         expression { return params.DEPLOY }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-          sh '''
-            ALB_DNS=$(aws elbv2 describe-load-balancers --names "$ALB_NAME" --region "$AWS_REGION" \
-              --query 'LoadBalancers[0].DNSName' --output text)
-            BASE_URL="http://$ALB_DNS" RUN_ID="jenkins-$ENV-$BUILD_NUMBER" \
-              EVIDENCE_DIR="$EVIDENCE_DIR/smoke" ./cicd/smoke/smoke.sh
+        sh '''
+          ALB_DNS=$(aws elbv2 describe-load-balancers --names "$ALB_NAME" --region "$AWS_REGION" \
+            --query 'LoadBalancers[0].DNSName' --output text)
+          BASE_URL="http://$ALB_DNS" RUN_ID="jenkins-$ENV-$BUILD_NUMBER" \
+            EVIDENCE_DIR="$EVIDENCE_DIR/smoke" ./cicd/smoke/smoke.sh
 
-            aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION" \
-              --query 'services[0].{status:status,runningCount:runningCount,taskDefinition:taskDefinition,deployments:deployments}' \
-              > "$EVIDENCE_DIR/ecs-service.json"
-          '''
-        }
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --region "$AWS_REGION" \
+            --query 'services[0].{status:status,runningCount:runningCount,taskDefinition:taskDefinition,deployments:deployments}' \
+            > "$EVIDENCE_DIR/ecs-service.json"
+        '''
       }
     }
   }

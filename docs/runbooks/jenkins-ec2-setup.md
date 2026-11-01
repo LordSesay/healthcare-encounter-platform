@@ -20,7 +20,12 @@ Jenkins talks to the host Docker daemon via socket mount. No Docker-in-Docker.
 - AMI: Amazon Linux 2023 (recommended) or Ubuntu 22.04
 - Type: t3.medium (2 vCPU, 4 GB RAM minimum)
 - Storage: 30 GB gp3
-- IAM instance profile: attach the `jenkins-encounter-platform-ci` role (so AWS CLI inside the container inherits credentials automatically — no access keys stored on disk)
+- IAM instance profile: `jenkins-encounter-platform-ci`, created by [`infra/ci`](../../infra/ci/README.md). The AWS CLI and Terraform inside the container get short-lived credentials from instance metadata. No access keys are stored on disk or in Jenkins.
+- Instance metadata: IMDSv2 required, hop limit **2**. Jenkins runs in a Docker container, which adds a network hop; with the default hop limit of 1 the container can't reach the instance role at all:
+  ```bash
+  aws ec2 modify-instance-metadata-options --instance-id <instance-id> \
+    --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled
+  ```
 - Security group inbound:
   - TCP 22 from your IP only
   - TCP 8080 from your IP only
@@ -119,9 +124,10 @@ Go to **Manage Jenkins → Credentials → System → Global credentials → Add
 
 | ID | Type | Value |
 |----|------|-------|
-| `aws-credentials` | AWS Credentials | IAM access key + secret for `jenkins-encounter-platform-ci` (skip if using instance profile) |
 | `db-password` | Secret text | RDS database password — must match `TF_VAR_db_password` used in Terraform |
 | `test-database-url` | Secret text | `postgresql://postgres:testpass@test-db:5432/encounter_test` |
+
+There is deliberately no AWS credential here. Both pipelines start with `cicd/jenkins/verify-aws-identity.sh`, which fails the build if AWS access keys are found in the environment or in `~/.aws/credentials`, or if the caller isn't the instance role. If an old `aws-credentials` entry exists from an earlier setup, delete it.
 
 ---
 

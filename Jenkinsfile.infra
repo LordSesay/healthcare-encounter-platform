@@ -1,3 +1,14 @@
+// Terraform runs as terraform-encounter-platform-deployer, assumed from the
+// Jenkins EC2 instance role (infra/ci). The profile file holds only a role ARN,
+// never a key; the SDK fetches short-lived credentials from instance metadata.
+def terraformAwsEnv() {
+  return [
+    "AWS_CONFIG_FILE=${env.WORKSPACE}/.aws-terraform.config",
+    "AWS_PROFILE=terraform-deployer",
+    "AWS_SDK_LOAD_CONFIG=1"
+  ]
+}
+
 pipeline {
   agent any
 
@@ -26,9 +37,11 @@ pipeline {
   }
 
   environment {
-    AWS_REGION = 'us-east-1'
-    INFRA_DIR  = 'infra'
-    TF_IN_AUTOMATION = 'true'
+    AWS_REGION        = 'us-east-1'
+    INFRA_DIR         = 'infra'
+    TF_IN_AUTOMATION  = 'true'
+    JENKINS_ROLE_NAME = 'jenkins-encounter-platform-ci'
+    TF_ROLE_NAME      = 'terraform-encounter-platform-deployer'
   }
 
   stages {
@@ -42,17 +55,32 @@ pipeline {
       }
     }
 
+    stage('Assume Terraform Role') {
+      steps {
+        sh '''
+          ./cicd/jenkins/verify-aws-identity.sh "$JENKINS_ROLE_NAME"
+
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          printf '[profile terraform-deployer]\nrole_arn = arn:aws:iam::%s:role/%s\ncredential_source = Ec2InstanceMetadata\nrole_session_name = jenkins-infra-%s-%s\nregion = %s\n' \
+            "$ACCOUNT" "$TF_ROLE_NAME" "$ENVIRONMENT" "$BUILD_NUMBER" "$AWS_REGION" \
+            > "$WORKSPACE/.aws-terraform.config"
+
+          AWS_CONFIG_FILE="$WORKSPACE/.aws-terraform.config" AWS_PROFILE=terraform-deployer \
+            ./cicd/jenkins/verify-aws-identity.sh "$TF_ROLE_NAME"
+        '''
+      }
+    }
+
     stage('Terraform Init') {
       steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh '''
-              terraform init -input=false -reconfigure \
-                -backend-config="key=env/$ENVIRONMENT/terraform.tfstate"
-            '''
+        withEnv(terraformAwsEnv()) {
+          withCredentials([string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')]) {
+            dir("${INFRA_DIR}") {
+              sh '''
+                terraform init -input=false -reconfigure \
+                  -backend-config="key=env/$ENVIRONMENT/terraform.tfstate"
+              '''
+            }
           }
         }
       }
@@ -68,20 +96,19 @@ pipeline {
 
     stage('Terraform Plan') {
       steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh '''
-              DESTROY_FLAG=""
-              [ "$ACTION" = destroy ] && DESTROY_FLAG="-destroy"
-              terraform plan -input=false -no-color $DESTROY_FLAG -out=tfplan \
-                -var-file="environments/$ENVIRONMENT.tfvars" \
-                -var="environment=$ENVIRONMENT" \
-                -var="image_tag=$IMAGE_TAG"
-              terraform show -no-color tfplan > tfplan.txt
-            '''
+        withEnv(terraformAwsEnv()) {
+          withCredentials([string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')]) {
+            dir("${INFRA_DIR}") {
+              sh '''
+                DESTROY_FLAG=""
+                [ "$ACTION" = destroy ] && DESTROY_FLAG="-destroy"
+                terraform plan -input=false -no-color $DESTROY_FLAG -out=tfplan \
+                  -var-file="environments/$ENVIRONMENT.tfvars" \
+                  -var="environment=$ENVIRONMENT" \
+                  -var="image_tag=$IMAGE_TAG"
+                terraform show -no-color tfplan > tfplan.txt
+              '''
+            }
           }
         }
       }
@@ -99,12 +126,11 @@ pipeline {
 
     stage('Terraform Apply') {
       steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials'],
-          string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')
-        ]) {
-          dir("${INFRA_DIR}") {
-            sh 'terraform apply -input=false -no-color tfplan'
+        withEnv(terraformAwsEnv()) {
+          withCredentials([string(credentialsId: 'db-password', variable: 'TF_VAR_db_password')]) {
+            dir("${INFRA_DIR}") {
+              sh 'terraform apply -input=false -no-color tfplan'
+            }
           }
         }
       }
@@ -112,9 +138,7 @@ pipeline {
 
     stage('Capture Outputs') {
       steps {
-        withCredentials([
-          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
-        ]) {
+        withEnv(terraformAwsEnv()) {
           dir("${INFRA_DIR}") {
             sh '''
               mkdir -p ../docs/evidence
@@ -130,6 +154,7 @@ pipeline {
   post {
     always {
       archiveArtifacts artifacts: 'docs/evidence/tf-*', allowEmptyArchive: true, fingerprint: true
+      sh 'rm -f "$WORKSPACE/.aws-terraform.config"'
     }
     success {
       echo "Terraform ${params.ACTION} completed for ${params.ENVIRONMENT}."

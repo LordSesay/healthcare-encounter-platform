@@ -33,3 +33,5 @@ override.tf.json
 Thumbs.db
 .vscode/
 .idea/
+# Per-build AWS profile written by Jenkinsfile.infra (role ARN only, no keys)
+.aws-terraform.config
